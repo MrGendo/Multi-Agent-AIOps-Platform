@@ -70,7 +70,7 @@ flowchart TD
     E3 --> M
     
     M -->|8. 消除冲突合成主报告| RM[Remediation Planner 自愈规划]
-    RM -->|9. 人工审批停顿 (HITL)| AE[Action Executor 自愈执行]
+    RM -->|"9. 人工审批停顿 (HITL)"| AE[Action Executor 自愈执行]
     
     AE -->|10. 诊断报告输出| Output[SSE 推送前端 & 异步提炼入库]
 ```
