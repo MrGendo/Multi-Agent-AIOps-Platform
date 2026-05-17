@@ -294,7 +294,7 @@ multi_agent_github/
 ## License
 
 本项目核心源码以 **MIT License** 发布。本项目深度借鉴了业界的优秀理念并集成了部分优质开源方案：
-- 参考了 [@Kkkirito-123](https://github.com/Kkkirito-123) 核心思路（[Kkkirito-123/mutil-rag-agent](https://github.com/Kkkirito-123/mutil-rag-agent)）。
+- 参考了 [@Kkkirito-123](https://github.com/Kkkirito-123) 思路（[Kkkirito-123/mutil-rag-agent](https://github.com/Kkkirito-123/mutil-rag-agent)）。
 - 整合了 [@Aas-ee](https://github.com/Aas-ee) 编写的无密钥网络搜索探针 [open-webSearch](https://github.com/Aas-ee/open-webSearch)。
 - RAG 基础黄金测试语料来源于社区优秀的规则集合 [samber/awesome-prometheus-alerts](https://github.com/samber/awesome-prometheus-alerts) (CC BY 4.0 许可)。
 - 感谢“小林 OnCall Agent”项目为排障大类设计提供的灵感。
