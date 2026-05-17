@@ -1,0 +1,148 @@
+/* Tab buttons */
+.tab-btn {
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #64748b;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    cursor: pointer;
+    background: transparent;
+    border-radius: 6px 6px 0 0;
+}
+
+.tab-btn:hover {
+    color: #4f46e5;
+    background: #f8fafc;
+}
+
+.tab-active {
+    color: #4f46e5 !important;
+    border-bottom-color: #4f46e5 !important;
+    background: white;
+}
+
+/* Step list animation */
+.step-item {
+    padding: 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: white;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.step-item.executing { border-color: #6366f1; background: #eef2ff; }
+.step-item.done      { border-color: #10b981; background: #f0fdf4; }
+
+/* AIOps 区定高, 左右两栏内部各自滚动, 防止页面整体被报告撑高 */
+.aiops-grid {
+    height: calc(100vh - 320px);
+    min-height: 520px;
+}
+
+/* 流式 token 容器: 柔和的背景, 让用户看出是实时输出 */
+.step-item .step-stream {
+    margin-top: 4px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: #fafafa;
+    border-left: 2px solid #c7d2fe;
+    max-height: 160px;
+    overflow-y: auto;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    color: #475569;
+}
+.step-item.executing .step-stream { border-left-color: #6366f1; }
+.step-item.done .step-stream { display: none; }
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Chat message bubbles */
+.chat-msg {
+    padding: 10px 14px;
+    border-radius: 12px;
+    max-width: 85%;
+    font-size: 14px;
+    line-height: 1.5;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.chat-msg.user {
+    background: #4f46e5;
+    color: white;
+    margin-left: auto;
+}
+
+.chat-msg.assistant {
+    background: white;
+    color: #334155;
+    border: 1px solid #e2e8f0;
+}
+
+.chat-msg.assistant pre {
+    background: #f1f5f9;
+    padding: 8px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 12px;
+}
+
+.chat-msg.assistant code {
+    background: #f1f5f9;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+/* Markdown report styling */
+.prose h1 { font-size: 1.5rem; font-weight: bold; margin-top: 1em; margin-bottom: 0.5em; color: #1e293b; }
+.prose h2 { font-size: 1.25rem; font-weight: bold; margin-top: 1em; margin-bottom: 0.5em; color: #334155; }
+.prose h3 { font-size: 1.1rem; font-weight: 600; margin-top: 0.75em; color: #475569; }
+.prose ul, .prose ol { margin-left: 1.5em; }
+.prose li { margin: 0.25em 0; }
+.prose code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; font-size: 0.9em; }
+.prose pre { background: #1e293b; color: #f8fafc; padding: 12px; border-radius: 8px; overflow-x: auto; }
+.prose pre code { background: transparent; color: inherit; }
+.prose strong { color: #1e293b; font-weight: 600; }
+
+/* Doc card */
+.doc-card {
+    padding: 10px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.15s;
+}
+.doc-card:hover { border-color: #6366f1; }
+
+/* Skill card */
+.skill-card {
+    transition: all 0.2s ease;
+    cursor: help;  /* 提示鼠标悬停看 tooltip */
+    border-width: 1px;
+}
+.skill-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px -2px rgba(0, 0, 0, 0.08);
+}
+
+/* Skill card 选中态: 诊断中被 Router 选中, 用 ring + 缩放强提示 */
+.skill-card.skill-active {
+    transform: scale(1.04);
+    box-shadow: 0 0 0 2px #4f46e5, 0 6px 12px -2px rgba(79, 70, 229, 0.35);
+    background: white !important;
+    animation: skillPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes skillPulse {
+    0%, 100% { box-shadow: 0 0 0 2px #4f46e5, 0 6px 12px -2px rgba(79, 70, 229, 0.35); }
+    50%      { box-shadow: 0 0 0 3px #6366f1, 0 8px 16px -2px rgba(79, 70, 229, 0.55); }
+}

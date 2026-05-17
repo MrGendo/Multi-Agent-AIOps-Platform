@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Agent AIOps Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800">
+
+<!-- Header -->
+<header class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg">
+    <div class="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight">Multi-Agent AIOps Platform</h1>
+            <p class="text-indigo-100 text-sm">企业级智能运维诊断 · LangGraph + RAG + MCP</p>
+        </div>
+        <div class="flex items-center space-x-3">
+            <span id="health-dot" class="w-3 h-3 rounded-full bg-yellow-400"></span>
+            <span id="health-text" class="text-sm font-mono">检查中...</span>
+        </div>
+    </div>
+</header>
+
+<!-- Tabs -->
+<div class="max-w-7xl mx-auto px-6 mt-6">
+    <div class="bg-white rounded-t-xl shadow-sm border-b">
+        <nav class="flex space-x-1 px-2 pt-2">
+            <button data-tab="aiops"     class="tab-btn tab-active">🔍 AIOps 诊断</button>
+            <button data-tab="chat"      class="tab-btn">💬 RAG 聊天</button>
+            <button data-tab="documents" class="tab-btn">📚 知识库</button>
+        </nav>
+    </div>
+    <div class="bg-white rounded-b-xl shadow-md p-6 min-h-[600px]">
+
+        <!-- ====================== AIOps Tab ====================== -->
+        <section id="tab-aiops" class="tab-pane">
+
+            <!-- Skill 总览面板 (诊断中会高亮选中的 Skill) -->
+            <div class="mb-5 bg-gradient-to-br from-slate-50 to-indigo-50 border rounded-lg p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-slate-700 flex items-center">
+                        <span class="mr-1">🎯</span> Skill 库 (Playbook)
+                        <span id="skill-count" class="ml-2 text-xs font-normal text-slate-500"></span>
+                    </h3>
+                    <div id="skill-selected-banner" class="hidden text-xs bg-indigo-600 text-white px-3 py-1 rounded-full">
+                        <span class="opacity-80">本次诊断:</span>
+                        <span id="skill-selected-name" class="font-semibold"></span>
+                    </div>
+                </div>
+                <div id="skill-list" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2 text-xs">
+                    <span class="text-slate-400 italic col-span-full">加载中...</span>
+                </div>
+                <div id="skill-reason" class="hidden mt-2 text-xs text-slate-600 italic"></div>
+            </div>
+
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 aiops-grid">
+                <!-- 左侧: 输入 + 计划 + 步骤 -->
+                <div class="xl:col-span-1 flex flex-col min-h-0 space-y-3">
+                    <div>
+                        <label class="block text-sm font-semibold mb-2">告警内容 / 故障描述</label>
+                        <textarea id="aiops-query" rows="3"
+                            class="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 text-sm font-mono"
+                            placeholder="例如: 我的电脑内存占用居高不下, 系统开始卡顿...">我的电脑内存占用居高不下, 系统明显卡顿, 浏览器和开发工具响应变慢, 已持续 12 分钟</textarea>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button id="aiops-start" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 rounded-lg transition">
+                            🚀 开始诊断
+                        </button>
+                        <button id="aiops-stop" class="px-4 bg-slate-200 hover:bg-slate-300 rounded-lg text-sm" disabled>
+                            停止
+                        </button>
+                    </div>
+
+                    <div class="shrink-0">
+                        <h3 class="text-sm font-semibold mb-1 text-slate-600">📋 诊断计划</h3>
+                        <div id="aiops-plan" class="bg-slate-50 border rounded-lg p-3 text-sm space-y-1 max-h-[160px] overflow-y-auto">
+                            <span class="text-slate-400 italic">点击"开始诊断"生成计划...</span>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col min-h-0 flex-1">
+                        <h3 class="text-sm font-semibold mb-1 text-slate-600 shrink-0">⚡ 执行步骤</h3>
+                        <div id="aiops-steps" class="bg-slate-50 border rounded-lg p-3 text-sm space-y-2 flex-1 min-h-0 overflow-y-auto scroll-smooth">
+                            <span class="text-slate-400 italic">等待开始...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 右侧: 实时监控 / 最终报告 -->
+                <div class="col-span-2 flex flex-col min-h-0">
+                    <h3 class="text-sm font-semibold mb-2 text-slate-600 flex items-center justify-between shrink-0">
+                        <span id="aiops-right-title">� 诊断监控</span>
+                        <span id="aiops-status" class="text-xs font-normal text-slate-400">未开始</span>
+                    </h3>
+
+                    <!-- 监控面板: 报告到达前显示; 诊断结束后被 report 替换 -->
+                    <div id="aiops-monitor" class="flex flex-col flex-1 min-h-0 border rounded-lg bg-white p-4 space-y-3 overflow-hidden">
+                        <!-- 指标卡 -->
+                        <div class="grid grid-cols-4 gap-3 shrink-0">
+                            <div class="bg-indigo-50 border border-indigo-100 rounded-lg p-3">
+                                <div class="text-[10px] uppercase tracking-wider text-indigo-500">当前步骤</div>
+                                <div id="mon-step" class="text-xl font-semibold text-indigo-700 mt-0.5">—</div>
+                                <div id="mon-step-label" class="text-[11px] text-indigo-400 truncate">等待启动</div>
+                            </div>
+                            <div class="bg-emerald-50 border border-emerald-100 rounded-lg p-3">
+                                <div class="text-[10px] uppercase tracking-wider text-emerald-600">耗时</div>
+                                <div id="mon-elapsed" class="text-xl font-semibold text-emerald-700 mt-0.5">0.0s</div>
+                                <div class="text-[11px] text-emerald-500">自诊断开始</div>
+                            </div>
+                            <div class="bg-amber-50 border border-amber-100 rounded-lg p-3">
+                                <div class="text-[10px] uppercase tracking-wider text-amber-600">工具调用</div>
+                                <div id="mon-tools" class="text-xl font-semibold text-amber-700 mt-0.5">0</div>
+                                <div id="mon-tools-fail" class="text-[11px] text-amber-500">失败 0</div>
+                            </div>
+                            <div class="bg-slate-100 border border-slate-200 rounded-lg p-3">
+                                <div class="text-[10px] uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                                    <span>真实 Tokens</span>
+                                    <span id="mon-tokens-badge" class="text-[9px] text-slate-400 normal-case font-normal">~估算</span>
+                                </div>
+                                <div id="mon-tokens" class="text-xl font-semibold text-slate-700 mt-0.5">0</div>
+                                <div id="mon-tokens-detail" class="text-[11px] text-slate-500 truncate" title="">输入 0 · 输出 0</div>
+                            </div>
+                        </div>
+
+                        <!-- 两栏: 左 实时输出, 右 工具流水 -->
+                        <div class="grid grid-cols-5 gap-3 flex-1 min-h-0">
+                            <div class="col-span-3 flex flex-col min-h-0 border rounded-lg bg-slate-50">
+                                <div class="px-3 py-2 text-xs font-semibold text-slate-600 border-b bg-white rounded-t-lg shrink-0 flex justify-between">
+                                    <span>🧠 Executor 实时输出</span>
+                                    <span id="mon-stream-hint" class="text-slate-400 font-normal">等待中</span>
+                                </div>
+                                <div id="mon-stream" class="flex-1 min-h-0 overflow-y-auto p-3 text-xs text-slate-700 whitespace-pre-wrap break-words font-mono leading-relaxed">
+                                    <span class="text-slate-400 italic">诊断开始后, 模型生成的文本会实时显示在此...</span>
+                                </div>
+                            </div>
+                            <div class="col-span-2 flex flex-col min-h-0 border rounded-lg bg-slate-50">
+                                <div class="px-3 py-2 text-xs font-semibold text-slate-600 border-b bg-white rounded-t-lg shrink-0">
+                                    🛠️ 工具调用流水
+                                </div>
+                                <div id="mon-tool-feed" class="flex-1 min-h-0 overflow-y-auto p-2 space-y-1 text-xs">
+                                    <span class="text-slate-400 italic px-2">暂无工具调用</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 报告: 默认隐藏, 诊断结束时显示 -->
+                    <div id="aiops-report" class="prose prose-sm max-w-none border rounded-lg p-5 bg-white flex-1 min-h-0 overflow-y-auto hidden"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ====================== Chat Tab ====================== -->
+        <section id="tab-chat" class="tab-pane hidden">
+            <div class="max-w-3xl mx-auto">
+                <div id="chat-messages" class="space-y-4 mb-4 min-h-[400px] max-h-[500px] overflow-y-auto p-3 bg-slate-50 rounded-lg border">
+                    <div class="text-center text-slate-400 italic text-sm">基于知识库回答你的运维问题</div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <input id="chat-input" type="text"
+                        class="flex-1 p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 text-sm"
+                        placeholder="例如: 我的电脑内存占用居高不下" />
+                    <button id="chat-web-toggle" type="button"
+                        title="启用后会把外网搜索结果作为回答的补充资料"
+                        class="px-3 py-2 rounded-lg border text-xs font-medium select-none transition
+                               border-slate-300 text-slate-500 hover:bg-slate-100">
+                        🌐 联网 <span id="chat-web-state">关</span>
+                    </button>
+                    <button id="chat-mcp-toggle" type="button"
+                        title="启用后允许 RAG Chat 调用 MCP 只读工具查询本机/容器/网络状态"
+                        class="px-3 py-2 rounded-lg border text-xs font-medium select-none transition
+                               border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100">
+                        🛠 MCP <span id="chat-mcp-state">开</span>
+                    </button>
+                    <button id="chat-send" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 rounded-lg font-semibold">
+                        发送
+                    </button>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-1">联网默认调用本地 open-webSearch daemon, 无需搜索 API Key；未启动时会降级提示.</div>
+            </div>
+        </section>
+
+        <!-- ====================== Documents Tab ====================== -->
+        <section id="tab-documents" class="tab-pane hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                    <h3 class="text-sm font-semibold mb-2 text-slate-600">📤 上传文档</h3>
+                    <div id="upload-zone" class="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:bg-slate-50 cursor-pointer transition">
+                        <input type="file" id="upload-input" accept=".md,.markdown,.txt" class="hidden">
+                        <div class="text-4xl mb-2">📁</div>
+                        <div class="text-sm text-slate-600">点击或拖拽 .md/.txt 文件到此</div>
+                        <div class="text-xs text-slate-400 mt-1">将自动按章节切分并建立向量索引</div>
+                    </div>
+                    <div id="upload-result" class="mt-3 text-sm"></div>
+                </div>
+                <div>
+                    <h3 class="text-sm font-semibold mb-2 text-slate-600 flex items-center justify-between">
+                        <span>📚 已索引文档</span>
+                        <button id="docs-refresh" class="text-xs text-indigo-600 hover:underline">🔄 刷新</button>
+                    </h3>
+                    <div id="docs-list" class="space-y-2 max-h-[400px] overflow-y-auto">
+                        <span class="text-sm text-slate-400 italic">加载中...</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </div>
+</div>
+
+<footer class="text-center text-xs text-slate-400 py-6">
+    Multi-Agent AIOps · LangChain v1.x · 2026
+</footer>
+
+<!-- cache-busting: 改版后前端自动加载最新 JS, 避免浏览器用旧缓存 -->
+<script src="/app.js?v=20260505c"></script>
+</body>
+</html>
