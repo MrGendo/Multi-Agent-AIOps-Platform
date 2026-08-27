@@ -332,6 +332,20 @@ class Settings(BaseSettings):
     log_dir: str = Field(default="logs", description="日志目录")
     log_retention_days: int = Field(default=14, description="日志保留天数")
 
+    # ==================== 关系型持久化 (PostgreSQL 生产 / SQLite 开发) ====================
+    database_url: str = Field(
+        default="sqlite+aiosqlite:///./data/aiops.db",
+        description=(
+            "关系库连接串. 开发默认 SQLite (自动开 WAL), "
+            "生产用 PostgreSQL, 例: postgresql+asyncpg://aiops:aiops@localhost:5432/aiops"
+        ),
+    )
+    db_echo: bool = Field(default=False, description="是否打印 SQL 语句 (调试用)")
+    alert_dedupe_window_sec: int = Field(
+        default=900,
+        description="同 fingerprint 告警去重窗口秒数, 窗口内已诊断过则跳过重复诊断",
+    )
+
     # ==================== 计算属性 ====================
     @property
     def mcp_servers(self) -> Dict[str, Dict[str, Any]]:
