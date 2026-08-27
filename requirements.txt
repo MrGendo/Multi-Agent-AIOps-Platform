@@ -55,3 +55,12 @@ tiktoken>=0.7.0
 PyYAML>=6.0  # SKILL.md frontmatter 解析
 redis>=5.0.0
 rank-bm25
+
+# 关系型持久化 (P2a): SQLAlchemy async + Alembic 迁移
+# greenlet 是 SQLAlchemy async 引擎必需 (缺失时 init 静默降级为禁用持久化)
+sqlalchemy>=2.0.52
+alembic>=1.19.1
+aiosqlite>=0.22.1
+greenlet>=3.5.5
+# 生产 PostgreSQL 驱动 (开发 SQLite 无需)
+asyncpg>=0.30.0
