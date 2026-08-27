@@ -17,15 +17,37 @@ from pathlib import Path
 from loguru import logger
 
 from app.config import settings
+from app.core.pii_filter import sanitize
+
+
+def _pii_patcher(record) -> None:  # noqa: ANN001
+    """loguru patcher: 消息进入所有 sink 之前做 PII 脱敏.
+
+    覆盖 request 上下文里的 query 文本与异常文本,
+    防止排障日志把密码/密钥/内网 IP 落盘.
+    """
+    try:
+        if record["message"]:
+            record["message"] = sanitize(record["message"])
+        q = record["extra"].get("query")
+        if isinstance(q, str) and q:
+            record["extra"]["query"] = sanitize(q)
+    except Exception:
+        pass
 
 
 def setup_logging() -> None:
     """初始化日志系统.
 
     必须在应用启动时调用一次.
+    生产模式 (debug=False): 文件 sink 输出 JSON Lines (loguru serialize=True),
+      便于 Loki/ELK/Datadog 直接聚合; 控制台保持可读格式.
+    所有 sink 之前挂 PII patcher 脱敏.
     """
     # 清掉默认 handler (避免重复输出)
     logger.remove()
+    # 全局 PII 脱敏 patcher (对后续所有 add 的 sink 生效)
+    logger.configure(patcher=_pii_patcher, extra={"request_id": "-"})
 
     # ---------- 控制台 ----------
     # 开发模式用彩色, 生产模式用 JSON 格式 (便于日志聚合)
@@ -66,14 +88,12 @@ def setup_logging() -> None:
             "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
             "{extra[request_id]} | {name}:{function}:{line} | {message}"
         ),
+        serialize=not settings.debug,  # 生产 JSONL, 开发可读文本
         encoding="utf-8",
         enqueue=True,  # 异步写入, 不阻塞主线程
         backtrace=True,
         diagnose=False,
     )
-
-    # 给 logger 的 extra 设默认值, 避免 KeyError
-    logger.configure(extra={"request_id": "-"})
 
     # ---------- 拦截标准 logging ----------
     # uvicorn / fastapi / pymilvus 等用的是标准 logging, 拦截后统一用 loguru

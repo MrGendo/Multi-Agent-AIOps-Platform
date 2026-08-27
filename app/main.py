@@ -26,7 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from app.api.middleware import setup_middlewares
-from app.api.v1 import aiops, chat, documents, health, skills, webhook
+from app.api.v1 import aiops, chat, documents, health, metrics, skills, webhook
 from app.config import settings
 from app.core.mcp_client import mcp_client_manager
 from app.core.milvus import milvus_manager
@@ -142,6 +142,7 @@ async def handle_unexpected_exception(
 API_PREFIX = "/api/v1"
 
 app.include_router(health.router, prefix=API_PREFIX)
+app.include_router(metrics.router)  # /metrics 挂全局, 不带 /api/v1 前缀 (Prometheus 抓取约定)
 app.include_router(chat.router, prefix=API_PREFIX)
 app.include_router(aiops.router, prefix=API_PREFIX)
 app.include_router(documents.router, prefix=API_PREFIX)
