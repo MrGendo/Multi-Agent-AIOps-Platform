@@ -2,6 +2,7 @@
 
 - RequestIDMiddleware: 为每个请求生成 UUID, 注入 logger context, 便于全链路追踪
 - LoggingMiddleware  : 记录请求/响应日志 (含耗时)
+- MetricsMiddleware  : Prometheus HTTP 指标打点 (按路由模板聚合)
 """
 
 import time
@@ -12,6 +13,8 @@ from fastapi import FastAPI, Request, Response
 from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
+
+from app.core.metrics import record_http_request
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -70,12 +73,57 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             raise
 
 
+class MetricsMiddleware(BaseHTTPMiddleware):
+    """Prometheus HTTP 指标打点.
+
+    标签用「路由模板」(request.scope["route"].path) 而非原始 path,
+    防止 /documents/123 与 /documents/456 产生无限标签组合 (基数爆炸).
+    静态文件与 /metrics 自身不打点, 避免抓取回路刷指标.
+    """
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        path = request.url.path
+        if path.startswith("/static") or path == "/metrics" or "." in path.rsplit("/", 1)[-1]:
+            return await call_next(request)
+
+        start = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            record_http_request(
+                method=request.method,
+                path_template=self._template(request),
+                status=500,
+                duration_sec=time.perf_counter() - start,
+            )
+            raise
+        record_http_request(
+            method=request.method,
+            path_template=self._template(request),
+            status=response.status_code,
+            duration_sec=time.perf_counter() - start,
+        )
+        return response
+
+    @staticmethod
+    def _template(request: Request) -> str:
+        route = request.scope.get("route")
+        return getattr(route, "path", request.url.path)
+
+
 def setup_middlewares(app: FastAPI) -> None:
     """注册所有中间件.
 
     注意中间件的添加顺序: 后添加的先执行 (洋葱模型).
     所以这里先加 CORS (最外层), 最后加 RequestID (最内层).
     """
+    # 指标中间件 (最内层, 与业务耗时最贴近)
+    app.add_middleware(MetricsMiddleware)
+
     # 日志中间件 (最内层, 拿到的是真实业务执行时间)
     app.add_middleware(LoggingMiddleware)
 
