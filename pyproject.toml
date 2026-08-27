@@ -1,0 +1,45 @@
+[tool.pytest.ini_options]
+# 离线单测约定: 不依赖 LLM / Milvus / Redis / MCP / 网络, 全部 mock.
+asyncio_mode = "auto"
+testpaths = ["tests"]
+# -p no:cacheprovider: 避免与其他并行运行的 pytest 争用 .pytest_cache
+addopts = "-p no:cacheprovider -q"
+
+[tool.ruff]
+line-length = 100
+# 只检查后端 Python 源码 + 测试, 排除 vendored / 前端 / 文档脚本
+include = ["app/**/*.py", "tests/**/*.py"]
+exclude = [
+    "frontend",
+    "open-webSearch-main",
+    "mcp_servers",
+    "docs",
+    ".venv",
+]
+
+[tool.ruff.lint]
+# 以默认规则集 (E4/E7/E9/F) 起步, 在"不修改 app/ 现有源码"的前提下保持零报错.
+# 后续可逐步收紧 (如加 I, UP, B).
+select = ["E4", "E7", "E9", "F"]
+ignore = [
+    "E402", # 模块级 import 位置不严格 (现有代码有延迟 import 规避循环依赖)
+    "E741", # 变量命名 l/I/O (现有代码里存在)
+    "F403", # star import (mcp 等模块使用)
+    "F405", # star import 后的未定义名 (与 F403 配套)
+    "F401", # 未使用 import (app/ 存量代码存在少量; 本任务约束不改动 app/ 源码)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试文件允许未使用的 import (import 本身就是导入副作用验证)
+"tests/**" = ["F401"]
+
+[tool.mypy]
+# 宽松基线模式: 存量代码未类型化, 先采集错误数, 不阻断 CI.
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = false
+disallow_untyped_defs = false
+warn_unused_ignores = false
+warn_redundant_casts = false
+no_strict_optional = true
+exclude = "(frontend|open-webSearch-main|mcp_servers|docs|\\.venv|alembic)"
