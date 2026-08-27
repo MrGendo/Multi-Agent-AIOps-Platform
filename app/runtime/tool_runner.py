@@ -28,6 +28,8 @@ from langchain_core.tools import BaseTool
 from loguru import logger
 
 from app.agents.stream_sink import emit as emit_stream
+from app.core.metrics import record_tool_call
+from app.core.resilience import get_breaker
 from app.tools.meta import get_meta
 
 
@@ -123,21 +125,44 @@ async def _safe_invoke_tool(
     tool: BaseTool,
     tool_call: Dict[str, Any],
 ) -> ToolMessage:
-    """异常隔离 + 结果截断, 返回标准化 ToolMessage.
+    """异常隔离 + 结果截断 + 熔断保护, 返回标准化 ToolMessage.
 
-    - 工具抛错 → 转成 "[执行失败: ...]" 字符串, 不让 gather 整批挂掉
+    - 熔断开路 → 直接返回跳过提示, 不实际调用 (fail-fast, 防单点卡死拖垮全局)
+    - 工具抛错 → record_failure 后转成 "[执行失败: ...]" 字符串, 不让 gather 整批挂掉
     - 结果超长 → 按 ToolMeta.max_result_chars 截断
     """
     name = tool_call["name"]
     meta = get_meta(name)
+    breaker = get_breaker(name)
     started = time.perf_counter()
+
+    if not breaker.before_call():
+        content = (
+            f"[circuit-open] 工具 {name!r} 近期连续失败已达阈值, "
+            f"已熔断跳过约 {breaker.recovery_timeout_sec:.0f} 秒. "
+            f"请改用其他工具或稍后重试."
+        )
+        logger.info(f"[ParallelAgent] tool={name} skipped: circuit OPEN")
+        metrics_status = "circuit_open"
+        await emit_stream({
+            "type": "tool_call",
+            "name": name,
+            "elapsed_ms": 0,
+            "read_only": bool(meta.read_only),
+            "result_chars": len(content),
+            "status": metrics_status,
+        })
+        record_tool_call(name, "circuit_open", None)
+        return ToolMessage(content=content, tool_call_id=tool_call["id"], name=name)
 
     try:
         content = await _invoke_tool(tool, tool_call["args"])
     except Exception as exc:
+        breaker.record_failure()
         logger.warning(f"[ParallelAgent] tool {name!r} 执行失败: {type(exc).__name__}: {exc}")
         content = f"[执行失败: {type(exc).__name__}: {exc}]"
-
+    else:
+        breaker.record_success()
     elapsed_ms = (time.perf_counter() - started) * 1000
 
     # 结果截断 (cc-haha maxResultSizeChars 同款)
@@ -151,6 +176,9 @@ async def _safe_invoke_tool(
             f"[ParallelAgent] tool {name!r} 输出 {truncated_len} 字符, 截断到 {meta.max_result_chars}"
         )
 
+    status = "failed" if content.startswith("[执行失败") else "ok"
+    record_tool_call(name, status, elapsed_ms / 1000)
+
     logger.info(
         f"[ParallelAgent] tool={name} "
         f"safe={meta.concurrency_safe} read_only={meta.read_only} "
@@ -163,7 +191,7 @@ async def _safe_invoke_tool(
         "elapsed_ms": int(elapsed_ms),
         "read_only": bool(meta.read_only),
         "result_chars": len(content),
-        "status": "failed" if content.startswith("[执行失败") else "ok",
+        "status": status,
     })
 
     return ToolMessage(content=content, tool_call_id=tool_call["id"], name=name)
