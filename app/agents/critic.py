@@ -37,7 +37,6 @@ async def critic_node(state: PlanExecuteState) -> PlanExecuteState:
     harness = get_agent_harness()
     # 使用较快的模型 (与 planner 一致)
     model = harness.planner_model()
-    llm = get_chat_llm(model=model, temperature=0, timeout=15, max_retries=1)
     
     system_prompt = """你是一个严苛的系统运维评审员 (Critic Agent)。
 你需要审查 Executor 提交的最新诊断步骤和结果。
@@ -54,6 +53,8 @@ async def critic_node(state: PlanExecuteState) -> PlanExecuteState:
     ]
     
     try:
+        # 客户端构造也纳入异常保护: key 缺失/本地 LLM 不可用时默认放行, 不阻塞诊断流程
+        llm = get_chat_llm(model=model, temperature=0, timeout=15, max_retries=1)
         decision = await ainvoke_structured(
             llm=llm,
             schema_cls=CriticDecision,
