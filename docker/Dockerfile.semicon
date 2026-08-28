@@ -1,0 +1,13 @@
+# 半导体 SECS/GEM 仿真探针 MCP 服务器 (独立轻量镜像)
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# semicon_server 只依赖 fastmcp; 单文件拷贝即可
+RUN pip install --no-cache-dir "fastmcp>=2.14.0"
+
+COPY mcp_servers/semicon_server.py /app/semicon_server.py
+
+EXPOSE 8012
+
+CMD ["python", "/app/semicon_server.py"]
