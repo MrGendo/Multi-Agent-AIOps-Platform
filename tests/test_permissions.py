@@ -133,3 +133,26 @@ def test_parse_permission_mode_fallbacks():
     assert parse_permission_mode("READ_ONLY") is PermissionMode.READ_ONLY
     assert parse_permission_mode("  bypass  ") is PermissionMode.BYPASS
     assert parse_permission_mode("garbage") is PermissionMode.NORMAL  # 未知降级
+
+
+# ============================================================
+# 高危工具的 skill 白名单例外 (2026-08-28 E2E 发现的死配置修复)
+# ============================================================
+def test_high_risk_non_destructive_allowed_when_skill_declares():
+    # 沙箱: risk=high, 非破坏性 (有自己的隔离层) + skill 显式声明 → 放行
+    d = evaluate_permission("execute_python_script", skill_allowed={"execute_python_script"})
+    assert d.behavior == "allow", d.reason
+
+
+def test_high_risk_non_destructive_still_denied_without_declaration():
+    # 未声明 → 仍被 guardrail 拦截 (例外必须显式声明才生效)
+    d = evaluate_permission("execute_python_script", skill_allowed=set())
+    assert d.behavior == "deny"
+    assert d.reason_type == "guardrail_high"
+
+
+def test_destructive_high_risk_never_gets_exception():
+    # 破坏性工具即使 skill 声明也拦 (docker_restart 类)
+    d = evaluate_permission(WRITE_TOOL, skill_allowed={WRITE_TOOL})
+    assert d.behavior == "deny"
+    assert d.reason_type == "guardrail_high"

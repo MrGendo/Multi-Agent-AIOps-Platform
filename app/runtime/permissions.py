@@ -171,7 +171,17 @@ def evaluate_permission(
             )
 
     # ---- Layer 2: 静态 Guardrails (与原 _is_tool_allowed_by_guardrails 等价) ----
-    if block_high_risk and tool_name in _get_high_risk_set():
+    # 例外: 非破坏性的高危工具被 Skill 的 allowed_tools 显式声明 = 维护者人工批准.
+    # 否则会出现「SKILL.md 写了沙箱工具但运行时永远被拦」的死配置 —
+    # 典型受害者是 execute_python_script (README 核心卖点, 但任何技能都未声明,
+    # 双层防御正确拒绝 → LLM 白白烧一轮往返). 人工声明 > 静态黑名单.
+    # 破坏性工具 (docker_restart 等) 不享受此例外: 沙箱有自己的隔离层
+    # (rlimits/黑名单/cwd), 破坏性工具没有.
+    if (
+        block_high_risk
+        and tool_name in _get_high_risk_set()
+        and (meta.destructive or tool_name not in skill_allowed)
+    ):
         return PermissionDecision(
             behavior="deny",
             reason_type="guardrail_high",
