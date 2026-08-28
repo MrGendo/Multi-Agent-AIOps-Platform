@@ -145,10 +145,11 @@ def test_high_risk_non_destructive_allowed_when_skill_declares():
 
 
 def test_high_risk_non_destructive_still_denied_without_declaration():
-    # 未声明 → 仍被 guardrail 拦截 (例外必须显式声明才生效)
+    # 未声明 → Layer 0 skill 硬墙先拦 (reason=skill_allowlist,
+    # 早于 Layer 2 guardrail; 行为仍是 deny)
     d = evaluate_permission("execute_python_script", skill_allowed=set())
     assert d.behavior == "deny"
-    assert d.reason_type == "guardrail_high"
+    assert d.reason_type == "skill_allowlist"
 
 
 def test_destructive_high_risk_never_gets_exception():
