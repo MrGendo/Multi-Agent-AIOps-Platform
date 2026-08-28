@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # 测试框架 (离线套件依赖, 不进 requirements: 生产无需 pytest)
+          pip install pytest pytest-asyncio
+
+      - name: Ruff lint (non-blocking baseline)
+        run: |
+          pip install ruff
+          ruff check app/ tests/ || echo "::warning::ruff has findings (non-blocking)"
+
+      - name: Alembic migration sanity (up/down on scratch sqlite)
+        run: |
+          rm -f /tmp/ci_alembic.db
+          DATABASE_URL=sqlite:////tmp/ci_alembic.db python -m alembic upgrade head
+          DATABASE_URL=sqlite:////tmp/ci_alembic.db python -m alembic downgrade base
+
+      - name: Offline test suite (all 156, no LLM/Milvus/Redis/network)
+        env:
+          # 显式声明离线意图: 测试套件必须在这些占位 key 下全绿
+          DASHSCOPE_API_KEY: sk-your-placeholder
+        run: |
+          python -m pytest tests/ -p no:cacheprovider --disable-warnings -q --tb=short
+
+      - name: Semiconductor probe verification script
+        run: |
+          python scripts/verify_semicon_probe.py
