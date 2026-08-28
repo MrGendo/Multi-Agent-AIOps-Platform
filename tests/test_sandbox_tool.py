@@ -79,7 +79,8 @@ def test_timeout_returns_friendly_message(monkeypatch):
 
 
 def test_temp_file_cleaned_up():
-    import tempfile, os
+    import tempfile
+    import os
     before = set(os.listdir(tempfile.gettempdir()))
     _run("print('cleanup check')")
     after = set(os.listdir(tempfile.gettempdir()))

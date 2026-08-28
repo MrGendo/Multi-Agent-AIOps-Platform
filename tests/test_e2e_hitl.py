@@ -84,7 +84,6 @@ def hitl_e2e(monkeypatch):
     executor_mod._agent_cache.clear()
 
     # 加速: action_executor 里的模拟 sleep 缩短 (函数内 import asyncio)
-    import app.agents.action_executor as action_mod
     import asyncio as real_asyncio
 
     real_sleep = real_asyncio.sleep
@@ -130,6 +129,7 @@ async def test_hitl_reject_blocks_execution(hitl_e2e):
         {"input": "订单服务内存泄漏告警", "permission_mode": "normal"},
         config={"recursion_limit": 60, "configurable": {"thread_id": "hitl-2"}},
     )
+    assert state1.get("remediation_plan"), "自愈计划应已生成"
     cfg2 = {"recursion_limit": 60, "configurable": {"thread_id": "hitl-2"}}
 
     # 明确不批准
