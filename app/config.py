@@ -166,6 +166,8 @@ class Settings(BaseSettings):
     mcp_network_url: str = Field(default="http://localhost:8009/mcp", description="网络诊断 MCP URL")
     mcp_docker_transport: str = Field(default="streamable-http", description="Docker 管理 MCP 传输")
     mcp_docker_url: str = Field(default="http://localhost:8011/mcp", description="Docker 管理 MCP URL")
+    mcp_semicon_transport: str = Field(default="streamable-http", description="半导体设备探针 MCP 传输")
+    mcp_semicon_url: str = Field(default="http://localhost:8012/mcp", description="半导体设备探针 MCP URL")
 
     # ==================== Agent ====================
     agent_max_steps: int = Field(default=5, description="Plan-Execute 最大步骤 (防死循环)")
@@ -374,6 +376,10 @@ class Settings(BaseSettings):
             "docker": {
                 "transport": self.mcp_docker_transport,
                 "url": self.mcp_docker_url,
+            },
+            "semicon": {
+                "transport": self.mcp_semicon_transport,
+                "url": self.mcp_semicon_url,
             },
         }
 
