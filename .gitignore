@@ -27,6 +27,8 @@ volumes/
 data/milvus/
 data/redis/
 data/minio/
+data/*.db
+data/*.jsonl
 data/etcd/
 
 # Node / open-webSearch
