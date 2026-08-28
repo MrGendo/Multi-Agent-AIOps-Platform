@@ -18,6 +18,7 @@ allowed_tools:
   - ping_host
   - http_check
   - dns_lookup
+  - execute_python_script
   - check_port
   - docker_ps
   - docker_stats
