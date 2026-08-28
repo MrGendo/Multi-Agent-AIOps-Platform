@@ -30,6 +30,7 @@ from app.api.v1 import aiops, chat, documents, health, metrics, skills, webhook
 from app.config import settings
 from app.core.mcp_client import mcp_client_manager
 from app.core.milvus import milvus_manager
+from app.db.session import close_db, init_db
 from app.exceptions import AppException
 from app.logging_config import setup_logging
 from app.schemas.common import ApiResponse
@@ -60,12 +61,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 3. 加载 MCP 工具 (可选依赖, 失败仅 warning)
     await mcp_client_manager.connect(fail_silently=True)
 
+    # 4. 持久化 (可选依赖: init 失败自动降级为禁用, 诊断流程不受影响)
+    if not await init_db():
+        logger.warning("[startup] 持久化不可用, 告警/诊断记录将不落库 (仅 JSONL history)")
+
     logger.info("应用就绪, 等待请求...")
     yield
     # ==================== 关闭 ====================
     logger.info("应用正在关闭...")
     await mcp_client_manager.close()
     milvus_manager.disconnect()
+    await close_db()
     logger.info("应用已关闭")
 
 

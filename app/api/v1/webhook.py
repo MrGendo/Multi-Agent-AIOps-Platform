@@ -16,15 +16,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks
 from loguru import logger
 from pydantic import BaseModel, Field
 
 import app.services.aiops_service as aiops_service
+from app.config import settings
+from app.core.metrics import record_alert_deduplicated, record_alert_received
+from app.db.persistence import persistence
+from app.db.models import RunStatus
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 
@@ -123,17 +128,24 @@ async def _run_diagnosis_background(
     query: str,
     session_id: str,
     alert_meta: Dict[str, Any],
+    alert_id: Optional[int] = None,
 ) -> None:
     """\u540e\u53f0\u8dd1 aiops_service.stream_diagnose, \u6536\u96c6\u5b8c\u6574\u4e8b\u4ef6\u6d41 \u2192 \u843d\u76d8.
 
     \u6ce8\u610f: \u8fd9\u4e0d\u662f SSE, \u4e5f\u4e0d\u62a5\u9519\u7ed9\u8c03\u7528\u65b9.
     \u7ed3\u679c\u5168\u90e8\u5199\u8fdb HISTORY_FILE, \u5931\u8d25\u4e5f\u8981\u5199 (\u4f9b\u4e8b\u540e\u8c03\u67e5).
+    \u6301\u4e45\u5316\u53ef\u7528\u65f6\u540c\u6b65\u5199 diagnostic_runs (\u4e0d\u53ef\u7528\u5219\u5168\u90e8 no-op).
     """
     started_at = datetime.now(timezone.utc).isoformat()
+    t0 = time.monotonic()
     events: List[Dict[str, Any]] = []
     final_report = ""
     selected_skill = ""
     error_msg = ""
+
+    run_id = await persistence.start_run(
+        query=query, session_id=session_id, alert_id=alert_id, trace_id=session_id
+    )
 
     logger.info(
         f"[webhook] \u540e\u53f0\u542f\u52a8\u8bca\u65ad session={session_id} "
@@ -150,10 +162,26 @@ async def _run_diagnosis_background(
                 final_report = ev.get("data", {}).get("report", "")
     except asyncio.CancelledError:
         error_msg = "cancelled"
+        await persistence.finish_run(
+            run_id, RunStatus.FAILED, error=error_msg,
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
         raise
     except Exception as e:
         error_msg = f"{type(e).__name__}: {e}"
         logger.exception(f"[webhook] \u8bca\u65ad\u5f02\u5e38: {e}")
+
+    duration_ms = int((time.monotonic() - t0) * 1000)
+    if error_msg:
+        await persistence.finish_run(
+            run_id, RunStatus.FAILED, error=error_msg[:2000],
+            duration_ms=duration_ms,
+        )
+    else:
+        await persistence.finish_run(
+            run_id, RunStatus.SUCCESS, report=final_report,
+            duration_ms=duration_ms,
+        )
 
     finished_at = datetime.now(timezone.utc).isoformat()
 
@@ -217,8 +245,34 @@ async def alertmanager_webhook(
             "fingerprint": fingerprint,
             "startsAt": alert.startsAt,
         }
+
+        record_alert_received(alertname)
+
+        # 持久化告警 (upsert; 持久化禁用时 no-op)
+        alert_id = await persistence.record_alert(
+            fingerprint=fingerprint,
+            alertname=alertname,
+            severity=alert.labels.get("severity", ""),
+            instance=instance,
+            payload=alert_meta,
+            source="alertmanager",
+        )
+
+        # 去重窗口: 同 fingerprint 窗口内已诊断过 → 跳过, 防重复烧 LLM token
+        last_diagnosed = await persistence.recently_diagnosed(
+            fingerprint, settings.alert_dedupe_window_sec
+        )
+        if last_diagnosed is not None:
+            record_alert_deduplicated()
+            skipped.append(f"{alertname} (dedup)")
+            logger.info(
+                f"[webhook] \u544a\u8b66\u53bb\u91cd\u8df3\u8fc7 {alertname} fp={fingerprint[:12]} "
+                f"(\u7a97\u53e3 {settings.alert_dedupe_window_sec}s \u5185\u5df2\u8bca\u65ad)"
+            )
+            continue
+
         background.add_task(
-            _run_diagnosis_background, query, session_id, alert_meta
+            _run_diagnosis_background, query, session_id, alert_meta, alert_id
         )
         triggered.append(session_id)
 
