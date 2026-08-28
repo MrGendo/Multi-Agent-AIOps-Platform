@@ -9,6 +9,8 @@
 ![LangGraph](https://img.shields.io/badge/LangGraph-Agent-orange)
 ![Milvus](https://img.shields.io/badge/Milvus-VectorDB-purple)
 ![FastMCP](https://img.shields.io/badge/FastMCP-Tools-black)
+![CI](https://github.com/MrGendo/Multi-Agent-AIOps-Platform/actions/workflows/ci.yml/badge.svg)
+![Tests](https://img.shields.io/badge/tests-159%20offline-brightgreen)
 
 ---
 
@@ -158,8 +160,10 @@ flowchart TD
 - **长期记忆与经验内化**：内置异步 `Consolidation Worker`，诊断完毕后自动提炼底层根因并反哺 Milvus 经验库，实现经验沉淀。
 - **Plan-Execute-Replan 流程**：基于局部专家的内部严密闭环，支持基于真实回传证据的动态计划调整。
 - **RAG 知识库融合**：使用 DashScope Embedding + Milvus，支持 OnCall SOP、开源 Prometheus 告警语料以及动态历史经验检索。
-- **实时 MCP 工具服务**：接入系统信息、网络诊断、Windows 日志、Docker 等只读工具服务。
+- **实时 MCP 工具服务**：接入系统信息、网络诊断、Windows 日志、Docker、半导体 SECS/GEM 仿真探针等工具服务。
 - **真实 Token 监控与 SSE 流式反馈**：前端实时通过打字机效果呈现系统并行调度、专家思考、沙箱执行等极具科技感的中间态。
+- **告警去重与全链路持久化**：Alertmanager webhook 按 fingerprint 去重（15 分钟窗口防告警风暴重复烧 token），告警、诊断 run、工具调用明细、HITL 审计全量落库（SQLite 开发 / PostgreSQL 生产），持久化故障自动降级绝不阻塞诊断。
+- **工程化质量门禁**：159 个离线测试（单元/集成/协议/E2E 四层，无需 LLM 与外部服务），GitHub Actions CI（py3.11/3.12 矩阵 + ruff + Alembic 迁移往返验证），schema 漂移检测防「只改模型忘写迁移」。
 
 ---
 
@@ -276,6 +280,7 @@ multi_agent_github/
 | 诊断全链路 Total Tokens 损耗 | **降低 66.5%** (`11889 -> 3988`) |
 | 只读探针工具并行化调度 | **加速 4.88x** (`1.06s 锐降至 0.22s`) |
 | RAG 召回能力 (R@3) | 稳定达到 **95.83%** (基于千级别离线文档测试) |
+| 框架自身开销 (E2E 基线, 不含 LLM 延迟) | **< 10s** 锁定 (CI 回归防劣化) |
 
 ---
 ## API 概览
