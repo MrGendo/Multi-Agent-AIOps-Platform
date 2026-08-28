@@ -81,6 +81,85 @@ class PermissionDecision(BaseModel):
 
 
 # ============================================================
+# Layer 3: 参数级规则
+# ============================================================
+# 规则形如 "docker_restart(container=nginx-*)" — 工具名 + 关键参数 glob 白名单.
+# 语义: 该工具只有在指定参数匹配白名单时才允许; 否则 deny (reason_type=rule_param).
+# 预决策 (bind_tools 阶段, tool_input=None): 规则存在 → ask (保守, 等 args 到了再判).
+ParamRule = Dict[str, Any]  # {"tool": str, "param": str, "allowed_patterns": [str]}
+
+_PARAM_RULES: List[ParamRule] = []
+
+
+def register_param_rule(tool: str, param: str, allowed_patterns: List[str]) -> None:
+    """注册参数级规则 (幂等: 同 tool+param 覆盖).
+
+    例: register_param_rule("docker_restart", "container", ["nginx-*", "redis-*"])
+    """
+    global _PARAM_RULES
+    _PARAM_RULES = [
+        r for r in _PARAM_RULES if not (r["tool"] == tool and r["param"] == param)
+    ] + [{"tool": tool, "param": param, "allowed_patterns": list(allowed_patterns)}]
+
+
+def clear_param_rules() -> None:
+    """清空规则 (测试用)."""
+    global _PARAM_RULES
+    _PARAM_RULES = []
+
+
+def _match_param_rules(tool_name: str, tool_input: Optional[Dict[str, Any]]):
+    """返回该工具的参数规则 (无则 None). tool_input=None 表示预决策阶段."""
+    rules = [r for r in _PARAM_RULES if r["tool"] == tool_name]
+    if not rules:
+        return None
+    return rules
+
+
+def _fnmatch_any(value: str, patterns: List[str]) -> bool:
+    from fnmatch import fnmatchcase
+
+    return any(fnmatchcase(value, p) for p in patterns)
+
+
+def _evaluate_param_rules(
+    tool_name: str, tool_input: Optional[Dict[str, Any]]
+) -> Optional[PermissionDecision]:
+    """Layer 3 决策. 返回 None 表示无规则适用 (放行到默认 allow)."""
+    rules = _match_param_rules(tool_name, tool_input)
+    if rules is None:
+        return None
+
+    # 预决策阶段 (bind_tools): 参数未知 → ask, 让调用方在拿到真实 args 后复查
+    if tool_input is None:
+        return PermissionDecision(
+            behavior="ask",
+            reason_type="rule_param",
+            reason=f"工具 {tool_name!r} 有参数级规则, 需在调用时按参数复查",
+        )
+
+    for rule in rules:
+        param = rule["param"]
+        value = tool_input.get(param)
+        if value is None:
+            return PermissionDecision(
+                behavior="deny",
+                reason_type="rule_param",
+                reason=f"工具 {tool_name!r} 要求参数 {param!r}, 但调用未提供",
+            )
+        if not _fnmatch_any(str(value), rule["allowed_patterns"]):
+            return PermissionDecision(
+                behavior="deny",
+                reason_type="rule_param",
+                reason=(
+                    f"工具 {tool_name!r} 参数 {param}={value!r} 不在允许列表 "
+                    f"{rule['allowed_patterns']} 内"
+                ),
+            )
+    return None  # 全部规则通过
+
+
+# ============================================================
 # 决策函数
 # ============================================================
 # 注意: 这些集合从 tool_filter 获取, 但为了避免循环 import 用延迟 import
@@ -141,8 +220,24 @@ def evaluate_permission(
             reason=f"工具 {tool_name!r} 不在当前 Skill 的 allowed_tools 中",
         )
 
+    # ---- Layer 3 (预判): 参数级规则在 BYPASS 之前 —
+    # 参数白名单是硬约束 (比 mode 更细), 连 BYPASS 也不放行白名单外的参数.
+    # 预决策 (无 args) 在 BYPASS 下直接放行, 运行时再按真实 args 复查.
+    if tool_input is not None:
+        param_decision = _evaluate_param_rules(tool_name, tool_input)
+        if param_decision is not None and param_decision.behavior != "allow":
+            return param_decision
+
     # ---- BYPASS 模式: 跳过其余所有检查 (生产绝不打开) ----
     if mode == PermissionMode.BYPASS:
+        param_pre = _evaluate_param_rules(tool_name, None)
+        if param_pre is not None:
+            # 有规则但参数未知: BYPASS 下不挂起 (dev 直通), 运行时复查兜底
+            return PermissionDecision(
+                behavior="allow",
+                reason_type="mode_bypass",
+                reason="BYPASS 模式直通 (参数级规则将由运行时复查)",
+            )
         return PermissionDecision(
             behavior="allow",
             reason_type="mode_bypass",
@@ -195,8 +290,11 @@ def evaluate_permission(
             reason=f"通知类工具 {tool_name!r} 未授权 (settings.guardrails_allow_notification_tools=False)",
         )
 
-    # ---- Layer 3: 参数级规则 (占位, MVP 不实现) ----
-    # TODO: 支持 "Bash(git *)" / "docker_restart(container=nginx)" 这类规则
+    # ---- Layer 3: 参数级规则 ----
+    # 有 tool_input (真实调用) → 按 glob 白名单判; 无 (bind 预决策) → ask 保守挂起
+    param_decision = _evaluate_param_rules(tool_name, tool_input)
+    if param_decision is not None and param_decision.behavior != "allow":
+        return param_decision
 
     # ---- Allow ----
     return PermissionDecision(

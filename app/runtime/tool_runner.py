@@ -27,10 +27,20 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_core.tools import BaseTool
 from loguru import logger
 
-from app.agents.stream_sink import emit as emit_stream
 from app.core.metrics import record_tool_call
 from app.core.resilience import get_breaker
 from app.tools.meta import get_meta
+
+
+def emit_stream(event):  # noqa: ANN001, ANN202
+    """延迟转发到 stream_sink.emit — 防循环 import.
+
+    顶部直接 `from app.agents.stream_sink import emit` 会触发
+    app.agents.__init__ → graph → executor → 回到本模块的环.
+    """
+    from app.agents.stream_sink import emit
+
+    return emit(event)
 
 
 # ============================================================
@@ -348,6 +358,21 @@ async def run_parallel_agent(
                 continue
 
             d = decisions.get(name)
+
+            # Layer 3 运行时复查: bind 预决策是按工具名的 (参数未知),
+            # 有参数级规则的工具在这里拿真实 args 重判.
+            # 只重判参数规则本身 (不重跑整个决策栈 — 预决策的 mode 语义保持不变).
+            # (延迟 import 防环: permissions → tool_filter → ... 的链条)
+            from app.runtime.permissions import _evaluate_param_rules
+
+            param_recheck = _evaluate_param_rules(name, tc.get("args") or {})
+            if param_recheck is not None:
+                if param_recheck.behavior != "allow":
+                    d = param_recheck
+                elif d is not None and d.reason_type == "rule_param":
+                    # 预决策是「参数规则待定」的 ask, 现在参数合规 → 恢复放行
+                    d = param_recheck  # allow
+
             if d is None or d.behavior == "allow":
                 valid_calls.append(tc)
                 continue
