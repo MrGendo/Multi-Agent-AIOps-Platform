@@ -1,0 +1,11 @@
+{
+  "full_diagnosis_flow_sec": 3.768,
+  "budgets": {
+    "full_diagnosis_flow": 10.0,
+    "fanout_two_experts": 10.0,
+    "hitl_roundtrip": 10.0
+  },
+  "tolerance": 1.2,
+  "measured_at": "2026-08-28T11:53:08",
+  "note": "mock LLM 边界, 框架自身开销; 重新生成请在本机执行 update"
+}

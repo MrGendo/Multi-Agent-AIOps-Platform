@@ -52,3 +52,7 @@ jobs:
       - name: Semiconductor probe verification script
         run: |
           python scripts/verify_semicon_probe.py
+
+      - name: Performance regression gate (framework overhead baseline)
+        run: |
+          python scripts/perf_baseline.py check
