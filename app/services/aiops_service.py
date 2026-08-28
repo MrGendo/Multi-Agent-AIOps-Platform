@@ -116,6 +116,8 @@ async def stream_diagnose(
                 await token_queue.put(done_sentinel)
 
         runner_task = asyncio.create_task(_graph_runner())
+        saw_error = False
+        pending_error: Dict[str, Any] | None = None
 
         try:
             while True:
@@ -125,11 +127,12 @@ async def stream_diagnose(
                 if "__error__" in item:
                     exc = item["__error__"]
                     logger.exception(f"[aiops] session={session_id} | 诊断异常: {exc}")
-                    yield _make_event(
+                    pending_error = _make_event(
                         "error", "diagnosis_failed",
                         message=f"诊断失败: {type(exc).__name__}: {exc}",
                         error_type=type(exc).__name__,
                     )
+                    saw_error = True
                     continue
                 if "__node__" in item:
                     event = item["__node__"]
@@ -202,6 +205,11 @@ async def stream_diagnose(
                 message=stats_event.get("detail", ""),
                 **(stats_event.get("data") or {}),
             )
+            if saw_error and pending_error is not None:
+                # 诊断已失败: 统计照发 (token 已消耗), 但以 error 收尾 —
+                # complete 会让前端把失败诊断标成「完成」, error 必须是终止信号
+                yield pending_error
+                return
             yield _make_event(
                 "complete", "diagnosis_complete", message="诊断流程完成"
             )
