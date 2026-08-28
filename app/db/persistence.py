@@ -125,15 +125,20 @@ class PersistenceService:
             return None
 
     async def recently_diagnosed(self, fingerprint: str, window_sec: int) -> Optional[datetime]:
-        """查同 fingerprint 最近一次诊断时间 (去重判断). 失败返回 None (不去重)."""
+        """查同 fingerprint 在窗口内最近一次诊断时间 (去重判断). 失败返回 None (不去重).
+
+        窗口外 (上次诊断早于 now-window_sec) 返回 None → 允许再次诊断.
+        """
         try:
             if not await self._ensure_init():
                 return None
             async with db_session.get_session() as sess:
+                cutoff = _utcnow() - timedelta(seconds=max(0, window_sec))
                 stmt = (
                     select(DiagnosticRun.created_at)
                     .join(Alert, DiagnosticRun.alert_id == Alert.id)
                     .where(Alert.fingerprint == fingerprint)
+                    .where(DiagnosticRun.created_at >= cutoff)
                     .order_by(DiagnosticRun.created_at.desc())
                     .limit(1)
                 )

@@ -225,6 +225,7 @@ async def alertmanager_webhook(
 ):
     triggered: List[str] = []
     skipped: List[str] = []
+    seen_fingerprints: set = set()  # 同 payload 内去重 (Alertmanager 分组重发)
     for idx, alert in enumerate(payload.alerts):
         if alert.status != "firing":
             skipped.append(alert.labels.get("alertname", f"unknown_{idx}"))
@@ -235,6 +236,15 @@ async def alertmanager_webhook(
         # session_id \u5e26\u4e0a fingerprint \u4fbf\u4e8e\u53bb\u91cd
         fingerprint = alert.fingerprint or f"{alertname}-{instance}-{alert.startsAt}"
         session_id = f"alertmanager-{alertname}-{fingerprint[:12]}"
+
+        # 同 payload 内重复 fingerprint (常见于 Alertmanager 分组重发):
+        # 第一条会同步建 RUNNING run 行, 第二条查询时已被窗口拦截;
+        # 这里再兜一层, 防止任何时序下同批重复触发
+        if fingerprint in seen_fingerprints:
+            record_alert_deduplicated()
+            skipped.append(f"{alertname} (dedup)")
+            continue
+        seen_fingerprints.add(fingerprint)
 
         query = _format_alert_as_query(alert)
         alert_meta = {
