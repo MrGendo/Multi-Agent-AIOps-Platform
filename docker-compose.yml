@@ -121,6 +121,21 @@ services:
       timeout: 5s
       retries: 10
 
+  # 半导体设备 SECS/GEM 仿真探针 MCP (P5; 端口 8012)
+  semicon-server:
+    container_name: multi-agent-semicon
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.semicon
+    ports:
+      - "8012:8012"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8012/mcp', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 networks:
   default:
     name: multi_agent_network
