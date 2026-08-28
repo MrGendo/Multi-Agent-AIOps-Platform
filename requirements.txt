@@ -64,3 +64,6 @@ aiosqlite>=0.22.1
 greenlet>=3.5.5
 # 生产 PostgreSQL 驱动 (开发 SQLite 无需)
 asyncpg>=0.30.0
+
+# 可观测性: /metrics 端点 (app/core/metrics.py)
+prometheus_client>=0.26.0
