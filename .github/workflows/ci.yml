@@ -16,10 +16,10 @@ jobs:
         python-version: ["3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -31,10 +31,10 @@ jobs:
           # 测试框架 (离线套件依赖, 不进 requirements: 生产无需 pytest)
           pip install pytest pytest-asyncio
 
-      - name: Ruff lint (non-blocking baseline)
+      - name: Ruff lint
         run: |
           pip install ruff
-          ruff check app/ tests/ || echo "::warning::ruff has findings (non-blocking)"
+          ruff check app/ tests/
 
       - name: Alembic migration sanity (up/down on scratch sqlite)
         run: |
