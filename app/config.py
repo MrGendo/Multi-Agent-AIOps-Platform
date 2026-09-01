@@ -53,6 +53,15 @@ class Settings(BaseSettings):
         default="https://api.deepseek.com",
         description="DeepSeek OpenAI 兼容 URL",
     )
+
+    # ==================== 智谱 GLM (OpenAI 兼容) ====================
+    # 当模型名以 "glm" 开头 (glm-4.7 / glm-4.7-flash 等) 时,
+    # get_chat_llm 自动切到智谱 bigmodel 的 base_url + api_key.
+    glm_api_key: str = Field(default="", description="智谱 API Key (open.bigmodel.cn)")
+    glm_base_url: str = Field(
+        default="https://open.bigmodel.cn/api/paas/v4",
+        description="智谱 GLM OpenAI 兼容 URL",
+    )
     dashscope_embedding_model: str = Field(
         default="text-embedding-v4", description="Embedding 模型"
     )
