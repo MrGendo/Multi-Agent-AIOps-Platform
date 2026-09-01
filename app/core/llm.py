@@ -105,6 +105,25 @@ def get_chat_llm(
 
     selected_model = model or settings.dashscope_chat_model
 
+    # 模型名以 glm 开头 → 路由到智谱 GLM (OpenAI 兼容).
+    # glm-4.7-flash 之类适合 Executor 高频调用; glm-4.7 适合 Planner/Merger.
+    if selected_model.lower().startswith("glm"):
+        if streaming:
+            kwargs.setdefault("stream_usage", True)
+        glm_key = (settings.glm_api_key or "").strip()
+        if not glm_key:
+            logger.warning("[LLM] 选择 GLM 模型但 GLM_API_KEY 未配置, 仍尝试调用 (会 401)")
+        return ChatOpenAI(
+            model=selected_model,
+            api_key=glm_key or "missing",  # type: ignore[arg-type]
+            base_url=settings.glm_base_url,
+            temperature=temperature,
+            streaming=streaming,
+            timeout=timeout,
+            max_retries=max_retries,
+            **kwargs,
+        )
+
     # 模型名以 deepseek 开头 → 路由到 DeepSeek (OpenAI 兼容).
     # DeepSeek v4 默认开思考模式, 会在 assistant message 里返回 reasoning_content,
     # 下一轮请求必须把 reasoning_content 原样回传, 否则 400:
