@@ -59,6 +59,22 @@ def fanout_e2e(monkeypatch):
     注意: Send 并行时两个 expert_node 同时消费 LLM — 必须按 (skill, 轮次)
     分发脚本, 共享单一队列会交错耗尽.
     """
+    # 锁定模型分层, 隔离 .env 状态: report 与 decide 模型同名时
+    # replanner 直接透传 draft (跳过 pro 合成), 报告不含执行明细 →
+    # 断言「丢包/iowait」依赖合成路径. 强制不同名保证走合成 (被 mock).
+    from app.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "agent_report_model", "test-report-model", raising=False)
+    monkeypatch.setattr(_settings, "agent_planner_model", "test-decide-model", raising=False)
+
+    # pro 合成: 用 past_steps 生成含执行明细的报告 (mock, 不调 LLM)
+    import app.agents.replanner as replanner_mod
+
+    async def fake_synth(user_input, past_steps, current_time, draft=""):
+        details = "\n".join(f"{s}: {r[:80]}" for s, r in past_steps)
+        return f"# 故障诊断报告\n## 收集到的信息\n{details}"
+
+    monkeypatch.setattr(replanner_mod, "_synthesize_final_report", fake_synth)
     # 每个 skill 一份独立脚本: 先发一个 tool_call, 再给总结
     from langchain_core.messages import AIMessage as AM
 
