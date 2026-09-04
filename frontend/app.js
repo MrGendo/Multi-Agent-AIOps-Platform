@@ -69,15 +69,13 @@ async function loadSkills() {
 
         listEl.innerHTML = "";
         skills.forEach((s) => {
-            const badge = RISK_BADGE[s.risk_level] || RISK_BADGE.low;
             const card = document.createElement("div");
-            card.className = `skill-card border rounded-lg p-2 bg-white ${badge.color}`;
+            card.className = "skill-card";
             card.dataset.skillName = s.name;
-            // tooltip 用 title (浏览器原生)
-            card.title = `${s.display_name || s.name}`;
+            card.title = `${s.display_name || s.name} · ${s.risk_level || "low"}`;
             card.innerHTML = `
-                <div class="font-semibold truncate">${escapeHtml(s.display_name)}</div>
-                <div class="text-[10px] opacity-70 font-mono truncate">${escapeHtml(s.name)}</div>
+                <div class="sk-name truncate">${escapeHtml(s.display_name)}</div>
+                <div class="sk-id truncate">${escapeHtml(s.name)}</div>
             `;
             listEl.appendChild(card);
         });
@@ -213,7 +211,7 @@ async function startAiops() {
     const stepsEl = document.getElementById("aiops-steps");
     const reportEl = document.getElementById("aiops-report");
     const statusEl = document.getElementById("aiops-status");
-    planEl.innerHTML = '<span class="text-slate-400 italic">等待 Planner...</span>';
+    planEl.innerHTML = '<span class="placeholder">等待 Planner…</span>';
     stepsEl.innerHTML = "";
     reportEl.innerHTML = "";
     showAiopsMonitor();
@@ -273,8 +271,8 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
         planEl.innerHTML = "";
         (d.plan || []).forEach((step, i) => {
             const div = document.createElement("div");
-            div.className = "flex items-start space-x-2";
-            div.innerHTML = `<span class="bg-indigo-100 text-indigo-700 rounded-full w-5 h-5 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">${i + 1}</span><span class="text-slate-700">${escapeHtml(step)}</span>`;
+            div.className = "plan-row";
+            div.innerHTML = `<span class="plan-num">${i + 1}</span><span>${escapeHtml(step)}</span>`;
             planEl.appendChild(div);
         });
         statusEl.textContent = `已生成 ${d.plan.length} 步计划`;
@@ -285,13 +283,13 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
             div = document.createElement("div");
             div.className = "step-item executing";
             div.dataset.stepIter = String(d.iteration);
-            div.innerHTML = `<div class="font-semibold text-xs text-indigo-700 mb-1">▶ 步骤 ${escapeHtml(String(d.iteration))}</div>
-                <div class="text-xs text-slate-600 mb-1">${escapeHtml(d.step || "")}</div>
-                <div class="step-stream text-xs text-slate-500 whitespace-pre-wrap break-words"></div>`;
+            div.innerHTML = `<div class="step-title">▶ 步骤 ${escapeHtml(String(d.iteration))}</div>
+                <div class="step-desc">${escapeHtml(d.step || "")}</div>
+                <div class="step-stream"></div>`;
             stepsEl.appendChild(div);
         }
         stepsEl.scrollTop = stepsEl.scrollHeight;
-        statusEl.textContent = `正在执行第 ${d.iteration} 步...`;
+        statusEl.textContent = `正在执行第 ${d.iteration} 步…`;
         // 监控面板: 更新当前步骤 + 清空实时输出 (每步重置)
         setText("mon-step", String(d.iteration));
         setText("mon-step-label", (d.step || "").slice(0, 40));
@@ -307,8 +305,8 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
             div = document.createElement("div");
             div.className = "step-item executing";
             div.dataset.stepIter = String(iter);
-            div.innerHTML = `<div class="font-semibold text-xs text-indigo-700 mb-1">▶ 步骤 ${escapeHtml(String(iter))}</div>
-                <div class="step-stream text-xs text-slate-500 whitespace-pre-wrap break-words"></div>`;
+            div.innerHTML = `<div class="step-title">▶ 步骤 ${escapeHtml(String(iter))}</div>
+                <div class="step-stream"></div>`;
             stepsEl.appendChild(div);
         }
         const stream = div.querySelector(".step-stream");
@@ -372,13 +370,13 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
             // 首次清掉占位
             if (feed.querySelector(".italic")) feed.innerHTML = "";
             const row = document.createElement("div");
+            const ok = d.success !== false;
             const statusIcon = ok ? "✓" : "✗";
-            const statusColor = ok ? "text-emerald-600" : "text-rose-600";
             const elapsed = d.elapsed_ms != null ? `${d.elapsed_ms}ms` : "";
-            row.className = "flex items-center gap-2 px-2 py-1 rounded hover:bg-slate-50 border-b border-slate-100";
-            row.innerHTML = `<span class="${statusColor} font-semibold">${statusIcon}</span>
-                <span class="font-mono text-slate-700 truncate">${escapeHtml(d.name || "?")}</span>
-                <span class="text-slate-400 ml-auto shrink-0">${escapeHtml(elapsed)}</span>`;
+            row.className = "tool-row";
+            row.innerHTML = `<span class="${ok ? "tk-ok" : "tk-fail"}">${statusIcon}</span>
+                <span class="tk-name">${escapeHtml(d.name || "?")}</span>
+                <span class="tk-time">${escapeHtml(elapsed)}</span>`;
             feed.appendChild(row);
             feed.scrollTop = feed.scrollHeight;
         }
@@ -392,15 +390,15 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
             stepsEl.appendChild(div);
         }
         div.className = "step-item done";
-        div.innerHTML = `<div class="font-semibold text-xs text-emerald-700 mb-1">✓ 步骤 ${escapeHtml(String(iter))}</div>
-            <div class="text-xs text-slate-600 mb-1">${escapeHtml(d.step || "")}</div>
-            <div class="text-xs text-slate-500 italic">${escapeHtml((d.result_preview || "").slice(0, 200))}</div>`;
+        div.innerHTML = `<div class="step-title">✓ 步骤 ${escapeHtml(String(iter))}</div>
+            <div class="step-desc">${escapeHtml(d.step || "")}</div>
+            <div class="step-preview">${escapeHtml((d.result_preview || "").slice(0, 200))}</div>`;
         stepsEl.scrollTop = stepsEl.scrollHeight;
         statusEl.textContent = `已完成 ${d.iteration} 步`;
     } else if (t === "replan") {
         const div = document.createElement("div");
-        div.className = "step-item executing";
-        div.innerHTML = `<div class="text-xs text-indigo-600">📐 Replanner 调整: 剩余 ${(d.plan || []).length} 步</div>`;
+        div.className = "step-item replan-note";
+        div.innerHTML = `<div>Replanner 调整: 剩余 ${(d.plan || []).length} 步</div>`;
         stepsEl.appendChild(div);
         stepsEl.scrollTop = stepsEl.scrollHeight;
     } else if (t === "report") {
@@ -412,22 +410,18 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
         showAiopsReport();
         const planText = d.plan || "";
         reportEl.innerHTML += `
-            <div class="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                <h3 class="text-amber-800 font-semibold mb-2 flex items-center gap-2">
-                    <span class="animate-pulse">⚠️</span> 提议的自愈修复方案
+            <div class="hitl-block">
+                <h3 class="hitl-title">
+                    <span class="animate-pulse">⚠</span> 提议的自愈修复方案
                 </h3>
-                <div class="text-slate-700 text-sm whitespace-pre-wrap mb-4 bg-white p-3 rounded border border-amber-100 shadow-sm">${escapeHtml(planText)}</div>
-                <div class="flex gap-3">
-                    <button onclick="window.resumeAiops(true)" class="bg-emerald-600 text-white px-5 py-2 rounded-md shadow-sm hover:bg-emerald-700 text-sm font-medium transition flex items-center gap-1">
-                        <span>✓</span> 授权并执行修复
-                    </button>
-                    <button onclick="window.resumeAiops(false)" class="bg-white border border-slate-300 text-slate-700 px-5 py-2 rounded-md shadow-sm hover:bg-slate-50 text-sm font-medium transition flex items-center gap-1">
-                        <span>✗</span> 拒绝执行
-                    </button>
+                <div class="hitl-plan">${escapeHtml(planText)}</div>
+                <div class="hitl-actions">
+                    <button onclick="window.resumeAiops(true)" class="btn-approve">✓ 授权并执行修复</button>
+                    <button onclick="window.resumeAiops(false)" class="btn-deny">✗ 拒绝执行</button>
                 </div>
             </div>
         `;
-        statusEl.textContent = "等待人工授权...";
+        statusEl.textContent = "等待人工授权…";
     } else if (t === "complete") {
         statusEl.textContent = "完成 ✓";
     } else if (t === "error") {
@@ -500,13 +494,8 @@ let chatMcpEnabled = true;
 
 function renderChatWebToggle() {
     if (!chatWebToggle) return;
-    if (chatWebEnabled) {
-        chatWebToggle.className = "px-3 py-2 rounded-lg border text-xs font-medium select-none transition border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100";
-        chatWebState.textContent = "开";
-    } else {
-        chatWebToggle.className = "px-3 py-2 rounded-lg border text-xs font-medium select-none transition border-slate-300 text-slate-500 hover:bg-slate-100";
-        chatWebState.textContent = "关";
-    }
+    chatWebToggle.classList.toggle("on", chatWebEnabled);
+    chatWebState.textContent = chatWebEnabled ? "开" : "关";
 }
 if (chatWebToggle) {
     chatWebToggle.addEventListener("click", () => {
@@ -518,13 +507,8 @@ if (chatWebToggle) {
 
 function renderChatMcpToggle() {
     if (!chatMcpToggle) return;
-    if (chatMcpEnabled) {
-        chatMcpToggle.className = "px-3 py-2 rounded-lg border text-xs font-medium select-none transition border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100";
-        chatMcpState.textContent = "开";
-    } else {
-        chatMcpToggle.className = "px-3 py-2 rounded-lg border text-xs font-medium select-none transition border-slate-300 text-slate-500 hover:bg-slate-100";
-        chatMcpState.textContent = "关";
-    }
+    chatMcpToggle.classList.toggle("on", chatMcpEnabled);
+    chatMcpState.textContent = chatMcpEnabled ? "开" : "关";
 }
 if (chatMcpToggle) {
     chatMcpToggle.addEventListener("click", () => {
@@ -622,19 +606,19 @@ async function sendChat() {
 // --- RAG Chat 思考过程气泡 (qwen3/qwen-plus-latest 等支持 thinking 的模型才会有) ---
 function appendThinkingBubble() {
     const container = document.getElementById("chat-messages");
-    const placeholder = container.querySelector(".text-center.italic");
+    const placeholder = container.querySelector(".placeholder.text-center");
     if (placeholder) placeholder.remove();
 
     const wrap = document.createElement("div");
     wrap.className = "flex justify-start";
     wrap.innerHTML = `
-      <div class="rag-thinking bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-500 max-w-[85%] space-y-1">
-        <div class="rag-thinking-head flex items-center gap-1.5 cursor-pointer select-none">
+      <div class="rag-thinking">
+        <div class="rag-thinking-head">
           <span>🧠</span>
-          <span class="font-medium text-slate-600">思考过程</span>
-          <span class="rag-thinking-toggle ml-auto text-[10px] text-slate-400">▼ 收起</span>
+          <span>思考过程</span>
+          <span class="rag-thinking-toggle">▼ 收起</span>
         </div>
-        <pre class="rag-thinking-content whitespace-pre-wrap font-sans text-[11px] leading-relaxed text-slate-500 max-h-48 overflow-auto"></pre>
+        <pre class="rag-thinking-content"></pre>
       </div>`;
     container.appendChild(wrap);
     container.scrollTop = container.scrollHeight;
@@ -659,18 +643,18 @@ function collapseThinkingBubble(bundle) {
 // --- RAG Chat 进度条 (类似 AIOps 步骤卡片) ---
 function appendChatProgress() {
     const container = document.getElementById("chat-messages");
-    const placeholder = container.querySelector(".text-center.italic");
+    const placeholder = container.querySelector(".placeholder.text-center");
     if (placeholder) placeholder.remove();
 
     const wrap = document.createElement("div");
     wrap.className = "flex justify-start";
     wrap.innerHTML = `
-      <div class="rag-progress bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2 text-xs text-slate-600 space-y-1 max-w-[85%]">
-        <div class="rag-progress-head font-medium text-indigo-700 flex items-center gap-2">
-          <span class="rag-spinner inline-block w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
+      <div class="rag-progress">
+        <div class="rag-progress-head">
+          <span class="rag-spinner animate-pulse"></span>
           <span>正在检索并生成回答…</span>
         </div>
-        <div class="rag-progress-rows space-y-0.5"></div>
+        <div class="rag-progress-rows"></div>
       </div>`;
     container.appendChild(wrap);
     container.scrollTop = container.scrollHeight;
@@ -692,18 +676,18 @@ function appendChatProgressRow(box, ev) {
     row.className = "rag-progress-row";
 
     const headLine = document.createElement("div");
-    headLine.className = "flex items-center gap-1.5 flex-wrap" + (hasDetails ? " cursor-pointer hover:bg-indigo-100/40 rounded px-0.5 -mx-0.5" : "");
+    headLine.className = "flex items-center gap-1.5 flex-wrap" + (hasDetails ? " cursor-pointer rounded px-0.5 -mx-0.5" : "");
     headLine.innerHTML = `
       <span class="shrink-0">${icon}</span>
-      <span class="text-slate-700 font-medium">${escapeHtml(ev.label || ev.stage || "")}</span>
-      ${ev.detail ? `<span class="text-slate-400 truncate">${escapeHtml(ev.detail)}</span>` : ""}
+      <span class="row-label">${escapeHtml(ev.label || ev.stage || "")}</span>
+      ${ev.detail ? `<span class="row-detail truncate">${escapeHtml(ev.detail)}</span>` : ""}
       ${elapsed}
-      ${hasDetails ? `<span class="rag-toggle text-[10px] text-indigo-500 ml-auto select-none">▶ 详情</span>` : ""}`;
+      ${hasDetails ? `<span class="rag-toggle">▶ 详情</span>` : ""}`;
     row.appendChild(headLine);
 
     if (hasDetails) {
         const panel = document.createElement("div");
-        panel.className = "rag-details mt-1 ml-5 hidden text-[11px] text-slate-600 bg-white border border-indigo-100 rounded p-2 space-y-1";
+        panel.className = "rag-details hidden";
         panel.innerHTML = detailsHtml;
         row.appendChild(panel);
         headLine.addEventListener("click", () => {
@@ -830,7 +814,7 @@ function iconForRagStage(stage) {
 function appendChatMsg(role, content) {
     const container = document.getElementById("chat-messages");
     // 清掉初始提示
-    const placeholder = container.querySelector(".text-center.italic");
+    const placeholder = container.querySelector(".placeholder.text-center");
     if (placeholder) placeholder.remove();
 
     const wrap = document.createElement("div");
@@ -891,13 +875,13 @@ async function uploadFile(file) {
 
 async function loadDocs() {
     const listEl = document.getElementById("docs-list");
-    listEl.innerHTML = '<span class="text-sm text-slate-400 italic">加载中...</span>';
+    listEl.innerHTML = '<span class="placeholder">加载中…</span>';
     try {
         const r = await fetch(`${API}/documents`);
         const data = await r.json();
         const docs = data?.data?.documents || [];
         if (docs.length === 0) {
-            listEl.innerHTML = '<span class="text-sm text-slate-400 italic">暂无文档, 请先上传</span>';
+            listEl.innerHTML = '<span class="placeholder">暂无文档, 请先上传</span>';
             return;
         }
         listEl.innerHTML = "";
@@ -906,10 +890,10 @@ async function loadDocs() {
             div.className = "doc-card";
             div.innerHTML = `
                 <div>
-                    <div class="font-semibold text-sm">${escapeHtml(d.source)}</div>
-                    <div class="text-xs text-slate-500">${d.chunk_count} 个 chunk</div>
+                    <div class="doc-name">${escapeHtml(d.source)}</div>
+                    <div class="doc-meta">${d.chunk_count} 个 chunk</div>
                 </div>
-                <button class="text-red-500 hover:text-red-700 text-sm" data-source="${escapeHtml(d.source)}">删除</button>
+                <button class="doc-del" data-source="${escapeHtml(d.source)}">删除</button>
             `;
             div.querySelector("button").addEventListener("click", (e) => {
                 if (confirm(`确认删除 ${d.source}?`)) deleteDoc(d.source);
