@@ -4,6 +4,21 @@
 
 const API = "/api/v1";
 
+// ---------- 主题切换 (亮/暗) ----------
+const THEME_KEY = "aiops_theme";
+function applyTheme(theme) {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+}
+(function initTheme() {
+    const saved = localStorage.getItem(THEME_KEY) || "dark";
+    applyTheme(saved);
+    const btn = document.getElementById("theme-toggle");
+    if (btn) btn.addEventListener("click", () => {
+        applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+    });
+})();
+
 // ---------- Tab 切换 ----------
 document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -128,6 +143,90 @@ function clearSkillHighlight() {
 let aiopsAbortController = null;
 let currentSessionId = "";
 
+// ---- Agent 执行轨迹收集 (流程图数据源) ----
+const aiopsTrace = {
+    steps: [],      // {iter, step, tools: [{name, args, result, elapsed, status}], preview}
+    current: null,  // 正在执行的步骤
+    reset() { this.steps = []; this.current = null; },
+    ensureStep(iter, stepName) {
+        let s = this.steps.find((x) => x.iter === iter);
+        if (!s) { s = { iter, step: stepName || "", tools: [], preview: "" }; this.steps.push(s); }
+        if (stepName && !s.step) s.step = stepName;
+        this.current = s;
+        return s;
+    },
+    addTool(ev) {
+        const s = this.current || this.ensureStep(0, "");
+        s.tools.push({
+            name: ev.name, args: ev.args || "", result: ev.result_preview || "",
+            elapsed: ev.elapsed_ms, status: ev.status,
+        });
+    },
+};
+
+function renderTrace() {
+    const wrap = document.getElementById("aiops-trace");
+    const tl = document.getElementById("trace-timeline");
+    if (!wrap || !tl) return;
+    if (!aiopsTrace.steps.length) { wrap.classList.add("hidden"); return; }
+
+    tl.innerHTML = "";
+    // 顶部: 节点概览轨道 (Orchestrator → Skills → Steps → Report)
+    const overview = document.createElement("div");
+    overview.className = "trace-overview";
+    const totalTools = aiopsTrace.steps.reduce((n, s) => n + s.tools.length, 0);
+    overview.innerHTML = `
+        <span class="trace-node start">开始</span>
+        <span class="trace-arrow">→</span>
+        <span class="trace-node">Planner 计划 ${aiopsTrace.steps.length} 步</span>
+        <span class="trace-arrow">→</span>
+        <span class="trace-node">Executor · ${totalTools} 次工具调用</span>
+        <span class="trace-arrow">→</span>
+        <span class="trace-node end">报告</span>`;
+    tl.appendChild(overview);
+
+    aiopsTrace.steps.forEach((s) => {
+        const item = document.createElement("div");
+        item.className = "trace-step";
+        const toolChips = s.tools.map((t, i) => `
+            <button class="trace-tool ${t.status === "ok" ? "ok" : "fail"}" data-step="${s.iter}" data-tool="${i}">
+                <span class="trace-tool-icon">${t.status === "ok" ? "✓" : "✗"}</span>
+                <span class="trace-tool-name">${escapeHtml(t.name)}</span>
+                <span class="trace-tool-ms">${t.elapsed != null ? t.elapsed + "ms" : ""}</span>
+            </button>`).join("");
+        item.innerHTML = `
+            <div class="trace-step-rail"><span class="trace-step-dot">${s.iter}</span></div>
+            <div class="trace-step-body">
+                <div class="trace-step-title">${escapeHtml(s.step || `步骤 ${s.iter}`)}</div>
+                ${toolChips ? `<div class="trace-tools">${toolChips}</div>` : ""}
+                ${s.preview ? `<div class="trace-step-preview">${escapeHtml(s.preview.slice(0, 160))}</div>` : ""}
+            </div>`;
+        tl.appendChild(item);
+    });
+
+    // 工具节点点击 → 展开 输入/输出 详情
+    tl.querySelectorAll(".trace-tool").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const step = aiopsTrace.steps.find((x) => x.iter === Number(btn.dataset.step));
+            const tool = step && step.tools[Number(btn.dataset.tool)];
+            if (!tool) return;
+            let detail = btn.nextElementSibling;
+            if (detail && detail.classList.contains("trace-detail")) {
+                detail.remove();  // toggle
+                return;
+            }
+            detail = document.createElement("div");
+            detail.className = "trace-detail";
+            detail.innerHTML = `
+                <div class="trace-detail-block"><div class="trace-detail-label">输入</div><pre>${escapeHtml(tool.args || "(无)")}</pre></div>
+                <div class="trace-detail-block"><div class="trace-detail-label">输出</div><pre>${escapeHtml(tool.result || "(无)")}</pre></div>`;
+            btn.after(detail);
+        });
+    });
+
+    wrap.classList.remove("hidden");
+}
+
 document.getElementById("aiops-start").addEventListener("click", startAiops);
 document.getElementById("aiops-stop").addEventListener("click", () => {
     if (aiopsAbortController) aiopsAbortController.abort();
@@ -193,7 +292,7 @@ function showAiopsReport() {
     document.getElementById("aiops-monitor").classList.add("hidden");
     const rep = document.getElementById("aiops-report");
     rep.classList.remove("hidden");
-    setText("aiops-right-title", "📄 诊断报告");
+    setText("aiops-right-title", "诊断报告");
 }
 
 function showAiopsMonitor() {
@@ -216,7 +315,9 @@ async function startAiops() {
     reportEl.innerHTML = "";
     showAiopsMonitor();
     aiopsMonitor.reset();
-    statusEl.textContent = "Orchestrator 评估中...";
+    aiopsTrace.reset();
+    document.getElementById("aiops-trace").classList.add("hidden");
+    statusEl.textContent = "Orchestrator 评估中…";
     clearSkillHighlight();
 
     document.getElementById("aiops-start").disabled = true;
@@ -258,15 +359,16 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
     }
 
     if (t === "start") {
-        statusEl.textContent = "Orchestrator 评估中...";
+        statusEl.textContent = "Orchestrator 评估中…";
     } else if (t === "skills_selected") {
         const skills = d.skills || [];
         // 清空现有的名字占位
         const nameEl = document.getElementById("skill-selected-name");
         if (nameEl) nameEl.textContent = "";
-        
+
         skills.forEach((s, i) => highlightSkill(s, d.reason, i > 0));
-        statusEl.textContent = `并行拉起专家: ${skills.join(', ') || "(无)"}, 会诊中...`;
+        statusEl.textContent = `并行拉起专家: ${skills.join(', ') || "(无)"}, 会诊中…`;
+        aiopsTrace.ensureStep(0, `Orchestrator 选派专家: ${skills.join(" + ")}`);
     } else if (t === "plan") {
         planEl.innerHTML = "";
         (d.plan || []).forEach((step, i) => {
@@ -290,6 +392,7 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
         }
         stepsEl.scrollTop = stepsEl.scrollHeight;
         statusEl.textContent = `正在执行第 ${d.iteration} 步…`;
+        aiopsTrace.ensureStep(d.iteration, d.step);
         // 监控面板: 更新当前步骤 + 清空实时输出 (每步重置)
         setText("mon-step", String(d.iteration));
         setText("mon-step-label", (d.step || "").slice(0, 40));
@@ -361,8 +464,9 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
     } else if (t === "tool_call") {
         // 监控面板: 工具调用累计 + 流水列表
         aiopsMonitor.toolCount += 1;
-        const ok = d.success !== false; // 后端 ok=true / success=true 都算成功
+        const ok = d.success !== false && d.status !== "failed"; // 后端 ok=true / success=true 都算成功
         if (!ok) aiopsMonitor.toolFail += 1;
+        aiopsTrace.addTool(d);
         setText("mon-tools", String(aiopsMonitor.toolCount));
         setText("mon-tools-fail", `失败 ${aiopsMonitor.toolFail}`);
         const feed = document.getElementById("mon-tool-feed");
@@ -395,6 +499,10 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
             <div class="step-preview">${escapeHtml((d.result_preview || "").slice(0, 200))}</div>`;
         stepsEl.scrollTop = stepsEl.scrollHeight;
         statusEl.textContent = `已完成 ${d.iteration} 步`;
+        {
+            const s = aiopsTrace.ensureStep(d.iteration, d.step);
+            s.preview = d.result_preview || "";
+        }
     } else if (t === "replan") {
         const div = document.createElement("div");
         div.className = "step-item replan-note";
@@ -406,6 +514,7 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
         reportEl.innerHTML = renderMarkdown(d.report || "");
         statusEl.textContent = "报告已生成";
         setText("mon-stream-hint", "已完成");
+        renderTrace();
     } else if (t === "action_request") {
         showAiopsReport();
         const planText = d.plan || "";
@@ -993,12 +1102,28 @@ function escapeHtml(s) {
 }
 
 // 极简 Markdown -> HTML (够用即可, 不引第三方库)
+// v2: 支持表格 / 引用块 / 更语义化的结构
 function renderMarkdown(md) {
     if (!md) return "";
-    // 处理 LLM 偶尔输出 \n 字面量 (而非实际换行) 的 bug
-    // (\\\\n 在 JS 字符串里就是 \n 两个字符, 把它替换成真换行)
     let s = String(md).replace(/\\n/g, "\n").replace(/\\t/g, "\t");
     let h = escapeHtml(s);
+
+    // 表格: | a | b | 换行 |---|---| 换行 | 1 | 2 |
+    h = h.replace(
+        /(?:^\|\s*(.+)\s*\|$)\n(?:^\|\s*[-:| ]+\s*\|$)\n((?:^\|.*\|\s*$\n?)+)/gm,
+        (m, headerRow, bodyRows) => {
+            const ths = headerRow.split("|").map((c) => c.trim()).filter(Boolean);
+            const rows = bodyRows.trim().split("\n").map((r) =>
+                r.replace(/^\||\|$/g, "").split("|").map((c) => c.trim())
+            );
+            const thead = `<thead><tr>${ths.map((t) => `<th>${t}</th>`).join("")}</tr></thead>`;
+            const tbody = `<tbody>${rows
+                .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
+                .join("")}</tbody>`;
+            return `<div class="md-table-wrap"><table>${thead}${tbody}</table></div>`;
+        }
+    );
+
     // 代码块
     h = h.replace(/```([\s\S]*?)```/g, (_, code) => `<pre><code>${code}</code></pre>`);
     // 行内代码
@@ -1007,6 +1132,8 @@ function renderMarkdown(md) {
     h = h.replace(/^### (.+)$/gm, "<h3>$1</h3>");
     h = h.replace(/^## (.+)$/gm, "<h2>$1</h2>");
     h = h.replace(/^# (.+)$/gm, "<h1>$1</h1>");
+    // 引用块 (SOP 提示等)
+    h = h.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
     // 加粗
     h = h.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     // 列表
@@ -1017,5 +1144,7 @@ function renderMarkdown(md) {
     // 段落
     h = h.replace(/\n\n/g, "</p><p>");
     h = h.replace(/\n/g, "<br>");
+    // 表格包裹层内的 <br> 还原 (表格已结构化)
+    h = h.replace(/(<div class="md-table-wrap">[\s\S]*?<\/div>)/g, (m) => m.replace(/<br>/g, ""));
     return `<p>${h}</p>`;
 }

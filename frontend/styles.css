@@ -26,6 +26,27 @@
     --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+/* 亮色主题: Linear light neutrals — #f7f8f8 bg / #ffffff cards / #5e6ad2 accent 保持 */
+:root[data-theme="light"] {
+    --bg: #f7f8f8;
+    --panel: #ffffff;
+    --surface: #f3f4f5;
+    --surface-hover: #e9eaec;
+    --text-1: #08090a;
+    --text-2: #333740;
+    --text-3: #62666d;
+    --text-4: #8a8f98;
+    --accent: #5e6ad2;
+    --accent-bright: #5e6ad2;
+    --accent-hover: #7170ff;
+    --border-subtle: rgba(11, 12, 13, 0.08);
+    --border: rgba(11, 12, 13, 0.12);
+    --green: #10b981;
+    --green-dim: #27a644;
+    --amber: #d97706;
+    --red: #dc2626;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -63,7 +84,7 @@ body {
 /* ---------- Top bar ---------- */
 .topbar {
     position: sticky; top: 0; z-index: 50;
-    background: rgba(8, 9, 10, 0.82);
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
     backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--border-subtle);
 }
@@ -263,7 +284,7 @@ body {
 .prose p { margin: 0.45em 0; color: var(--text-2); }
 .prose strong { color: var(--text-1); font-weight: 590; }
 .prose code { font-family: var(--mono); font-size: 0.88em; background: rgba(255, 255, 255, 0.06); padding: 1px 5px; border-radius: 4px; color: var(--accent-hover); }
-.prose pre { background: #0d0e0f; border: 1px solid var(--border-subtle); color: var(--text-2); padding: 12px 14px; border-radius: 8px; overflow-x: auto; }
+.prose pre { background: var(--surface); border: 1px solid var(--border-subtle); color: var(--text-2); padding: 12px 14px; border-radius: 8px; overflow-x: auto; }
 .prose pre code { background: transparent; padding: 0; color: inherit; }
 .prose ul, .prose ol { margin: 0.4em 0 0.4em 1.4em; }
 .prose li { margin: 0.22em 0; color: var(--text-2); }
@@ -322,7 +343,7 @@ body {
     border: 1px solid var(--border-subtle); border-bottom-left-radius: 4px;
 }
 .chat-msg.assistant p { margin: .3em 0; }
-.chat-msg.assistant pre { background: #0d0e0f; border: 1px solid var(--border-subtle); padding: 8px 10px; border-radius: 6px; overflow-x: auto; font-size: 11.5px; font-family: var(--mono); }
+.chat-msg.assistant pre { background: var(--surface); border: 1px solid var(--border-subtle); padding: 8px 10px; border-radius: 6px; overflow-x: auto; font-size: 11.5px; font-family: var(--mono); }
 .chat-msg.assistant code { background: rgba(255, 255, 255, 0.06); padding: 1px 4px; border-radius: 3px; font-size: .9em; font-family: var(--mono); }
 .chat-msg.assistant pre code { background: transparent; }
 
@@ -387,3 +408,100 @@ body {
 .text-slate-400 { color: var(--text-4); }
 .text-slate-500 { color: var(--text-3); }
 .col-span-full { grid-column: 1 / -1; }
+
+/* ---------- Markdown 表格 ---------- */
+.md-table-wrap { overflow-x: auto; margin: 10px 0; border: 1px solid var(--border-subtle); border-radius: 8px; }
+.prose table, .chat-msg table { border-collapse: collapse; width: 100
+/* ---------- Markdown 表格 ---------- */
+.md-table-wrap { overflow-x: auto; margin: 10px 0; border: 1px solid var(--border-subtle); border-radius: 8px; }
+.prose table, .chat-msg table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.prose th, .chat-msg th {
+    text-align: left; padding: 8px 12px; font-weight: 590; color: var(--text-1);
+    background: rgba(94, 106, 210, 0.10); border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+.prose td, .chat-msg td { padding: 7px 12px; color: var(--text-2); border-bottom: 1px solid var(--border-subtle); }
+.prose tr:last-child td { border-bottom: none; }
+.prose blockquote {
+    margin: 8px 0; padding: 6px 12px; color: var(--text-3);
+    border-left: 2px solid var(--accent-bright); background: rgba(94, 106, 210, 0.06);
+    border-radius: 0 6px 6px 0;
+}
+
+/* ---------- 主题切换按钮 ---------- */
+.theme-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+    background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-subtle);
+    color: var(--text-3); transition: all .15s;
+}
+.theme-toggle:hover { color: var(--text-1); background: rgba(255, 255, 255, 0.08); }
+:root[data-theme="light"] .theme-toggle { background: rgba(11, 12, 13, 0.04); }
+:root[data-theme="light"] .theme-toggle:hover { background: rgba(11, 12, 13, 0.08); }
+.theme-toggle svg { width: 14px; height: 14px; }
+.icon-moon { display: none; }
+:root[data-theme="light"] .icon-sun { display: none; }
+:root[data-theme="light"] .icon-moon { display: block; }
+
+/* ---------- Agent 执行流程图 ---------- */
+.trace-wrap {
+    flex: 1; min-height: 0; margin-bottom: 12px;
+    background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle);
+    border-radius: 10px; padding: 14px 16px;
+    max-height: 320px;
+}
+:root[data-theme="light"] .trace-wrap { background: #fff; }
+.trace-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.trace-overview { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; font-size: 11.5px; }
+.trace-node {
+    padding: 3px 10px; border-radius: 9999px; color: var(--text-2);
+    background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-subtle);
+    font-weight: 510;
+}
+:root[data-theme="light"] .trace-node { background: var(--surface); }
+.trace-node.start { color: var(--accent-hover); border-color: rgba(113, 112, 255, 0.5); }
+.trace-node.end { color: var(--green); border-color: rgba(16, 185, 129, 0.5); }
+.trace-arrow { color: var(--text-4); }
+.trace-step { display: flex; gap: 12px; margin-bottom: 12px; }
+.trace-step-rail { display: flex; flex-direction: column; align-items: center; }
+.trace-step-dot {
+    width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+    color: var(--accent-hover); background: rgba(94, 106, 210, 0.16);
+    border: 1px solid rgba(113, 112, 255, 0.35);
+}
+.trace-step-rail::after { content: ""; flex: 1; width: 1.5px; margin-top: 4px; background: var(--border-subtle); }
+.trace-step:last-child .trace-step-rail::after { display: none; }
+.trace-step-body { flex: 1; min-width: 0; padding-bottom: 4px; }
+.trace-step-title { font-size: 12.5px; font-weight: 590; color: var(--text-1); margin-bottom: 6px; }
+.trace-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.trace-tool {
+    display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+    border-radius: 6px; cursor: pointer; font-size: 11px; font-family: var(--mono);
+    background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle);
+    color: var(--text-2); transition: all .15s;
+}
+:root[data-theme="light"] .trace-tool { background: var(--surface); }
+.trace-tool:hover { border-color: var(--border); transform: translateY(-1px); }
+.trace-tool .trace-tool-icon { font-size: 10px; }
+.trace-tool.ok .trace-tool-icon { color: var(--green); }
+.trace-tool.fail .trace-tool-icon { color: var(--red); }
+.trace-tool.fail { border-color: rgba(248, 113, 113, 0.4); }
+.trace-tool-ms { color: var(--text-4); font-size: 10px; }
+.trace-step-preview { font-size: 11px; color: var(--text-4); line-height: 1.5; }
+.trace-detail {
+    width: 100%; margin: 2px 0 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+@media (max-width: 800px) { .trace-detail { grid-template-columns: 1fr; } }
+.trace-detail-block {
+    background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-subtle);
+    border-radius: 8px; padding: 8px 10px; min-width: 0;
+}
+:root[data-theme="light"] .trace-detail-block { background: var(--surface); }
+.trace-detail-label { font-size: 10px; font-weight: 590; color: var(--text-4); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 4px; }
+.trace-detail pre {
+    margin: 0; font-family: var(--mono); font-size: 10.5px; line-height: 1.55;
+    color: var(--text-2); white-space: pre-wrap; word-break: break-word;
+    max-height: 200px; overflow-y: auto;
+}

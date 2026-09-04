@@ -195,6 +195,13 @@ async def _safe_invoke_tool(
         f"elapsed={elapsed_ms:.0f}ms result_chars={len(content)}"
     )
     # 把工具调用事件旁路给 aiops_service, 前端"诊断监控"面板会实时展示.
+    # args + result 预览: 供前端流程图节点点击查看输入输出 (超长截断防 SSE 膻肿).
+    import json as _json
+
+    try:
+        args_preview = _json.dumps(tool_call.get("args") or {}, ensure_ascii=False)[:800]
+    except Exception:
+        args_preview = str(tool_call.get("args"))[:800]
     await emit_stream({
         "type": "tool_call",
         "name": name,
@@ -202,6 +209,8 @@ async def _safe_invoke_tool(
         "read_only": bool(meta.read_only),
         "result_chars": len(content),
         "status": status,
+        "args": args_preview,
+        "result_preview": content[:1500],
     })
 
     return ToolMessage(content=content, tool_call_id=tool_call["id"], name=name)
