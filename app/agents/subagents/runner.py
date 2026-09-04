@@ -86,7 +86,9 @@ async def _run_subagent(sub: SubagentDefinition, task: str) -> str:
                     {"role": "user", "content": task},
                 ]
             )
-            content = ai_msg.content if hasattr(ai_msg, "content") else str(ai_msg)
+            from app.agents.content_utils import extract_text
+
+            content = extract_text(ai_msg)
         else:
             result = await run_parallel_agent(
                 llm=get_chat_llm(temperature=0),
@@ -96,8 +98,10 @@ async def _run_subagent(sub: SubagentDefinition, task: str) -> str:
                 max_iters=sub.max_iters,
                 decisions=decisions,
             )
+            from app.agents.content_utils import extract_text
+
             last = result["messages"][-1]
-            content = last.content if hasattr(last, "content") else str(last)
+            content = extract_text(last)
     except Exception as exc:
         logger.exception(f"[Subagent] type={sub.agent_type} 执行异常: {exc}")
         return f"[{sub.agent_type} 执行失败: {type(exc).__name__}: {exc}]"
