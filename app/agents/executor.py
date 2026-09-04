@@ -88,6 +88,13 @@ def _get_executor(
     return runner_mode, _agent_cache[cache_key], tools, decisions
 
 
+def _extract_text_content(msg) -> str:  # noqa: ANN001
+    """从 AIMessage.content 提取纯文本 (跨协议), 见 content_utils."""
+    from app.agents.content_utils import extract_text
+
+    return extract_text(msg)
+
+
 async def execute_node(state: PlanExecuteState) -> PlanExecuteState:
     """Executor 节点: 执行 plan[0], 把结果加到 past_steps."""
     plan = state.get("plan", [])
@@ -160,7 +167,7 @@ async def execute_node(state: PlanExecuteState) -> PlanExecuteState:
             result = await executor.ainvoke({"messages": [("user", task_prompt)]})
         # 两条路径都返回 {"messages": [...]}, 取最后一条 AI 消息内容
         last_msg = result["messages"][-1]
-        answer = last_msg.content if hasattr(last_msg, "content") else str(last_msg)
+        answer = _extract_text_content(last_msg)
     except Exception as e:
         logger.exception(f"[Executor] 工具调用失败: {e}")
         answer = f"[执行失败: {type(e).__name__}: {e}]"
