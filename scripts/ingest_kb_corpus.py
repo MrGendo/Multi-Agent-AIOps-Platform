@@ -72,6 +72,12 @@ def split_all(files: List[Tuple[Path, str]]) -> List[Document]:
         except Exception as e:
             failed += 1
             logger.warning(f"切分失败: {fpath} -> {e}")
+    # 统一 metadata 字段: Milvus 的 schema 按首批 chunk 自动建表,
+    # 缺键 (无标题的 chunk 没有 h1/h2/h3) 会触发 DataNotMatchException —
+    # 补空串让所有 chunk 字段一致, 表结构稳定.
+    for doc in all_chunks:
+        for key in ("h1", "h2", "h3", "chapter"):
+            doc.metadata[key] = doc.metadata.get(key) or ""
     logger.info(
         f"切分完成: {len(files)} 文件 -> {len(all_chunks)} chunks (失败 {failed})"
     )
@@ -113,7 +119,11 @@ def reset_collection() -> None:
 
     from app.config import settings
 
-    uri = f"http://{settings.milvus_host}:{settings.milvus_port}"
+    # milvus-lite 嵌入式模式: uri = 本地文件路径 (与 app.core.vector_store 一致)
+    if settings.milvus_lite_path:
+        uri = settings.milvus_lite_path
+    else:
+        uri = f"http://{settings.milvus_host}:{settings.milvus_port}"
     client = MilvusClient(uri=uri)
     if client.has_collection(settings.milvus_collection):
         client.drop_collection(settings.milvus_collection)
