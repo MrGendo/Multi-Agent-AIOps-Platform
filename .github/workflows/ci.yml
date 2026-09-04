@@ -33,7 +33,7 @@ jobs:
 
       - name: Ruff lint
         run: |
-          pip install ruff
+          pip install "ruff==0.16.6"
           ruff check app/ tests/
 
       - name: Alembic migration sanity (up/down on scratch sqlite)
