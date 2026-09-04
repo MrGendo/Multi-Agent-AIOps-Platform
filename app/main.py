@@ -55,8 +55,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 1. 校验配置 (无效时直接抛错, 让 uvicorn 退出)
     settings.validate_runtime()
 
-    # 2. 连接 Milvus (必需依赖, 失败则启动失败)
-    milvus_manager.connect()
+    # 2. 连接 Milvus (无 Docker/演示环境: 失败降级为 warning, RAG 检索不可用但主流程可跑)
+    try:
+        milvus_manager.connect()
+    except Exception as exc:  # pragma: no cover - 演示降级路径
+        logger.warning(
+            f"[startup] Milvus 连接失败, RAG 检索/经验库不可用 (诊断主流程不受影响): "
+            f"{type(exc).__name__}: {exc}"
+        )
 
     # 3. 加载 MCP 工具 (可选依赖, 失败仅 warning)
     await mcp_client_manager.connect(fail_silently=True)

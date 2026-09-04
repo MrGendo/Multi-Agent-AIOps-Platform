@@ -9,7 +9,7 @@
   - 高层用 langchain_milvus, 与 LangChain 生态无缝衔接 (RAG / Retriever)
 """
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from loguru import logger
 from pymilvus import MilvusException, connections, utility
@@ -38,6 +38,8 @@ class MilvusManager:
 
     def __init__(self) -> None:
         self._connected = False
+        self._is_lite = False
+        self._lite_client: Optional[Any] = None
 
     # ==================== 连接管理 ====================
 
@@ -50,6 +52,27 @@ class MilvusManager:
         host = settings.milvus_host
         port = settings.milvus_port
         timeout = settings.milvus_timeout_ms / 1000
+
+        # milvus-lite 嵌入式模式: 本地文件路径 (./data/milvus_lite.db)
+        # 无 Docker/服务端也能跑完整 RAG — 演示/开发环境友好.
+        if settings.milvus_lite_path:
+            uri = settings.milvus_lite_path
+            logger.info(f"连接 Milvus (lite 嵌入式): {uri}")
+            try:
+                # lite 模式走 MilvusClient; ORM connections 不支持本地文件路径
+                from pymilvus import MilvusClient
+
+                self._lite_client = MilvusClient(uri)
+                self._connected = True
+                self._is_lite = True
+                logger.info(f"Milvus-lite 连接成功 | 已有 collections: {self.list_collections()}")
+                return
+            except Exception as e:
+                self._connected = False
+                raise VectorStoreError(
+                    f"Milvus-lite 连接失败 ({uri}): {e}",
+                    detail={"uri": uri},
+                ) from e
 
         logger.info(f"连接 Milvus: {host}:{port} (timeout={timeout}s)")
         try:
@@ -79,7 +102,10 @@ class MilvusManager:
         if not self._connected:
             return
         try:
-            connections.disconnect(self.DEFAULT_ALIAS)
+            if self._is_lite and self._lite_client is not None:
+                self._lite_client.close()
+            else:
+                connections.disconnect(self.DEFAULT_ALIAS)
             logger.info("Milvus 连接已断开")
         except Exception as e:
             logger.warning(f"断开 Milvus 失败 (忽略): {e}")
@@ -97,6 +123,8 @@ class MilvusManager:
         if not self._connected:
             return False
         try:
+            if self._is_lite:
+                return self._lite_client is not None
             # 试着获取连接地址, 失败说明连接已掉
             addr = connections.get_connection_addr(self.DEFAULT_ALIAS)
             return bool(addr)
@@ -115,6 +143,8 @@ class MilvusManager:
         if not self._connected:
             return []
         try:
+            if self._is_lite and self._lite_client is not None:
+                return list(self._lite_client.list_collections())
             return utility.list_collections(using=self.DEFAULT_ALIAS)
         except Exception as e:
             logger.warning(f"list_collections 失败: {e}")

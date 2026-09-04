@@ -42,16 +42,24 @@ def get_vector_store() -> Milvus:
           把同一个 alias 注册到 ORM registry, 让两套 API 共享连接.
         - 必须用 uri 而非 host+port (MilvusClient 的强制要求)
     """
-    uri = f"http://{settings.milvus_host}:{settings.milvus_port}"
+    # milvus-lite: 本地文件路径, MilvusClient 直连嵌入式库
+    # (LangChain Milvus 同样支持 uri=本地路径; 无 Docker 环境跑完整 RAG)
+    if settings.milvus_lite_path:
+        uri = settings.milvus_lite_path
+    else:
+        uri = f"http://{settings.milvus_host}:{settings.milvus_port}"
 
-    # 先创建 MilvusClient, 拿到内部 alias (形如 "cm-xxxxxx")
-    probe_client = MilvusClient(uri=uri)
-    internal_alias = probe_client._using
+    if uri.startswith("http"):
+        # 先创建 MilvusClient, 拿到内部 alias (形如 "cm-xxxxxx")
+        probe_client = MilvusClient(uri=uri)
+        internal_alias = probe_client._using
 
-    # 把同一 alias 注册到 ORM connections registry
-    # (pymilvus.orm.Collection 会从这里查 connection)
-    if internal_alias not in [c[0] for c in connections.list_connections()]:
-        connections.connect(alias=internal_alias, uri=uri)
+        # 把同一 alias 注册到 ORM connections registry
+        # (pymilvus.orm.Collection 会从这里查 connection)
+        if internal_alias not in [c[0] for c in connections.list_connections()]:
+            connections.connect(alias=internal_alias, uri=uri)
+    else:
+        internal_alias = ""  # lite 模式不需要 ORM alias
 
     logger.info(
         f"创建 VectorStore: collection={settings.milvus_collection}, "

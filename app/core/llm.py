@@ -59,6 +59,23 @@ def _build_local_llm(
     )
 
 
+_glm_last_call_ts: float = 0.0
+
+
+def _glm_rate_limit(interval_sec: float) -> None:
+    """进程级最小间隔节流 (同步, 阻塞在构造期). 简单但足够:
+    Agent 的 LLM 调用都经 get_chat_llm 构造, 在这里 sleep 等效于请求前间隔.
+    """
+    global _glm_last_call_ts
+    import time as _time
+
+    now = _time.monotonic()
+    wait = _glm_last_call_ts + interval_sec - now
+    if wait > 0:
+        _time.sleep(wait)
+    _glm_last_call_ts = _time.monotonic()
+
+
 def get_chat_llm(
     *,
     model: Optional[str] = None,
@@ -105,14 +122,36 @@ def get_chat_llm(
 
     selected_model = model or settings.dashscope_chat_model
 
-    # 模型名以 glm 开头 → 路由到智谱 GLM (OpenAI 兼容).
-    # glm-4.7-flash 之类适合 Executor 高频调用; glm-4.7 适合 Planner/Merger.
+    # 模型名以 glm 开头 → 路由到智谱 GLM.
+    # 两种模式:
+    #   a) Coding Plan (GLM_USE_CODING_PLAN=true): Anthropic 兼容协议,
+    #      套餐额度, 无免费档挤兑; ChatAnthropic 客户端.
+    #   b) 常规 paas/v4: OpenAI 兼容, 免费档有 1302/1305 限频.
     if selected_model.lower().startswith("glm"):
-        if streaming:
-            kwargs.setdefault("stream_usage", True)
         glm_key = (settings.glm_api_key or "").strip()
         if not glm_key:
             logger.warning("[LLM] 选择 GLM 模型但 GLM_API_KEY 未配置, 仍尝试调用 (会 401)")
+
+        if settings.glm_use_coding_plan:
+            from langchain_anthropic import ChatAnthropic
+
+            return ChatAnthropic(
+                model=selected_model,
+                api_key=glm_key or "missing",  # type: ignore[arg-type]
+                base_url=settings.glm_anthropic_base_url,
+                temperature=temperature,
+                streaming=streaming,
+                timeout=timeout,
+                max_retries=max_retries,
+                **kwargs,
+            )
+
+        # 免费档限频: 请求间强制最小间隔 (进程级), 避开 1302 速率限制
+        interval = settings.glm_min_request_interval_sec
+        if interval > 0:
+            _glm_rate_limit(interval)
+        if streaming:
+            kwargs.setdefault("stream_usage", True)
         return ChatOpenAI(
             model=selected_model,
             api_key=glm_key or "missing",  # type: ignore[arg-type]
