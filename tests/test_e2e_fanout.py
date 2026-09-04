@@ -66,10 +66,7 @@ def fanout_e2e(monkeypatch):
 
     monkeypatch.setattr(_settings, "agent_report_model", "test-report-model", raising=False)
     monkeypatch.setattr(_settings, "agent_planner_model", "test-decide-model", raising=False)
-
     # pro 合成: 用 past_steps 生成含执行明细的报告 (mock, 不调 LLM)
-    import app.agents.replanner as replanner_mod
-
     async def fake_synth(user_input, past_steps, current_time, draft=""):
         details = "\n".join(f"{s}: {r[:80]}" for s, r in past_steps)
         return f"# 故障诊断报告\n## 收集到的信息\n{details}"
