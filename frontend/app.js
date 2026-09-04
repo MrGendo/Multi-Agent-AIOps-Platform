@@ -9,6 +9,9 @@ const THEME_KEY = "aiops_theme";
 function applyTheme(theme) {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(THEME_KEY, theme);
+    // 按钮状态同步: 亮色 = 按下 (当前显示月亮, 点击切回暗色)
+    const btn = document.getElementById("theme-toggle");
+    if (btn) btn.setAttribute("aria-pressed", String(theme === "light"));
 }
 (function initTheme() {
     const saved = localStorage.getItem(THEME_KEY) || "dark";
@@ -169,59 +172,150 @@ function renderTrace() {
     const tl = document.getElementById("trace-timeline");
     if (!wrap || !tl) return;
     if (!aiopsTrace.steps.length) { wrap.classList.add("hidden"); return; }
-
     tl.innerHTML = "";
-    // 顶部: 节点概览轨道 (Orchestrator → Skills → Steps → Report)
-    const overview = document.createElement("div");
-    overview.className = "trace-overview";
-    const totalTools = aiopsTrace.steps.reduce((n, s) => n + s.tools.length, 0);
-    overview.innerHTML = `
-        <span class="trace-node start">开始</span>
-        <span class="trace-arrow">→</span>
-        <span class="trace-node">Planner 计划 ${aiopsTrace.steps.length} 步</span>
-        <span class="trace-arrow">→</span>
-        <span class="trace-node">Executor · ${totalTools} 次工具调用</span>
-        <span class="trace-arrow">→</span>
-        <span class="trace-node end">报告</span>`;
-    tl.appendChild(overview);
 
-    aiopsTrace.steps.forEach((s) => {
-        const item = document.createElement("div");
-        item.className = "trace-step";
-        const toolChips = s.tools.map((t, i) => `
-            <button class="trace-tool ${t.status === "ok" ? "ok" : "fail"}" data-step="${s.iter}" data-tool="${i}">
+    const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // ---- 布局常量 (与 styles.css 中节点尺寸保持一致) ----
+    const STEP_W = 190, STEP_H = 40;                       // 步骤节点
+    const TOOL_W = 150, TOOL_H = 28, TOOL_GAP = 6;         // 工具子节点
+    const PILL_W = 84, PILL_H = 36;                        // 开始/报告 胶囊
+    const PLAN_W = 170, PLAN_H = 48;                       // Planner 节点
+    const COL_GAP = 70, TOOL_COL_GAP = 46, ROW_GAP = 14;   // 列距 / 步骤纵距
+
+    // 1. 纵向布局: 每个步骤占一个"块", 块高 = max(步骤节点高, 工具栈高), 避免工具互相压叠
+    const blocks = aiopsTrace.steps.map((s) => {
+        const toolsH = s.tools.length ? TOOL_H * s.tools.length + TOOL_GAP * (s.tools.length - 1) : 0;
+        return { step: s, h: Math.max(STEP_H, toolsH + 6) };
+    });
+    const contentH = blocks.reduce((n, b) => n + b.h, 0) + ROW_GAP * (blocks.length - 1);
+
+    // 2. 横向五列: 开始 → Planner → 步骤 → 工具子列 → 报告
+    const xStart = 0;
+    const xPlan = xStart + PILL_W + COL_GAP;
+    const xStep = xPlan + PLAN_W + COL_GAP;
+    const xTool = xStep + STEP_W + TOOL_COL_GAP;
+    const hasTools = blocks.some((b) => b.step.tools.length);
+    const xEnd = (hasTools ? xTool + TOOL_W : xStep + STEP_W) + COL_GAP;
+    const canvasW = xEnd + PILL_W;
+    const canvasH = Math.max(contentH, PLAN_H);
+    const midY = canvasH / 2;
+
+    // 3. 画布 + 连线层 (SVG 垫在节点下方)
+    const canvas = document.createElement("div");
+    canvas.className = "trace-canvas";
+    canvas.style.width = `${canvasW}px`;
+    canvas.style.height = `${canvasH}px`;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "trace-svg");
+    svg.setAttribute("width", String(canvasW));
+    svg.setAttribute("height", String(canvasH));
+    canvas.appendChild(svg);
+    tl.appendChild(canvas);
+
+    const edgePaths = [];
+    const bez = (x1, y1, x2, y2) =>
+        `M ${x1} ${y1} C ${x1 + 32} ${y1}, ${x2 - 32} ${y2}, ${x2} ${y2}`;
+    const nodes = [];
+    const addNode = (el, x, y, w, h) => {
+        el.style.left = `${x}px`; el.style.top = `${y}px`;
+        el.style.width = `${w}px`; el.style.height = `${h}px`;
+        canvas.appendChild(el);
+        nodes.push(el);
+    };
+    const mk = (cls, html) => {
+        const el = document.createElement("div");
+        el.className = cls;
+        el.innerHTML = html;
+        return el;
+    };
+
+    // 4. 枢纽节点: 开始 / Planner / 报告, 纵向居中于画布
+    const totalTools = aiopsTrace.steps.reduce((n, s) => n + s.tools.length, 0);
+    addNode(mk("dag-node dag-start", "开始"), xStart, midY - PILL_H / 2, PILL_W, PILL_H);
+    addNode(
+        mk("dag-node dag-planner",
+            `<div class="dag-planner-title">Planner</div>
+             <div class="dag-planner-sub">计划 ${aiopsTrace.steps.length} 步 · ${totalTools} 工具</div>`),
+        xPlan, midY - PLAN_H / 2, PLAN_W, PLAN_H
+    );
+    edgePaths.push(bez(xStart + PILL_W, midY, xPlan, midY));
+
+    // 5. 步骤节点纵向铺开, 从 Planner 扇出; 各自的工具子节点挂在右侧子列, 最终汇入报告
+    let yCur = 0;
+    blocks.forEach((b, i) => {
+        const s = b.step;
+        const cy = yCur + STEP_H / 2;
+        const title = s.step || `步骤 ${s.iter}`;
+        const stepEl = mk("dag-node dag-step",
+            `<span class="dag-step-num">${escapeHtml(String(s.iter))}</span>
+             <span class="dag-step-title">${escapeHtml(title)}</span>`);
+        stepEl.title = title;  // 超宽截断后靠 title 看全文
+        addNode(stepEl, xStep, yCur, STEP_W, STEP_H);
+        edgePaths.push(bez(xPlan + PLAN_W, midY, xStep, cy));
+
+        // 工具子节点: 首个与步骤节点顶对齐, 之后向下紧凑堆叠
+        let ty = yCur + 6;
+        let srcX = xStep + STEP_W, srcY = cy;   // 无工具的步骤直接从自身右侧汇入报告
+        s.tools.forEach((t, ti) => {
+            const tcy = ty + TOOL_H / 2;
+            const btn = document.createElement("button");
+            btn.className = `trace-tool ${t.status === "ok" ? "ok" : "fail"}`;
+            btn.dataset.step = String(i);
+            btn.dataset.tool = String(ti);
+            btn.innerHTML = `
                 <span class="trace-tool-icon">${t.status === "ok" ? "✓" : "✗"}</span>
                 <span class="trace-tool-name">${escapeHtml(t.name)}</span>
-                <span class="trace-tool-ms">${t.elapsed != null ? t.elapsed + "ms" : ""}</span>
-            </button>`).join("");
-        item.innerHTML = `
-            <div class="trace-step-rail"><span class="trace-step-dot">${s.iter}</span></div>
-            <div class="trace-step-body">
-                <div class="trace-step-title">${escapeHtml(s.step || `步骤 ${s.iter}`)}</div>
-                ${toolChips ? `<div class="trace-tools">${toolChips}</div>` : ""}
-                ${s.preview ? `<div class="trace-step-preview">${escapeHtml(s.preview.slice(0, 160))}</div>` : ""}
-            </div>`;
-        tl.appendChild(item);
+                <span class="trace-tool-ms">${t.elapsed != null ? t.elapsed + "ms" : ""}</span>`;
+            addNode(btn, xTool, ty, TOOL_W, TOOL_H);
+            edgePaths.push(bez(xStep + STEP_W, cy, xTool, tcy));
+            srcX = xTool + TOOL_W; srcY = tcy;
+            ty += TOOL_H + TOOL_GAP;
+        });
+        edgePaths.push(bez(srcX, srcY, xEnd, midY));
+        yCur += b.h + ROW_GAP;
     });
 
-    // 工具节点点击 → 展开 输入/输出 详情
-    tl.querySelectorAll(".trace-tool").forEach((btn) => {
-        btn.addEventListener("click", () => {
-            const step = aiopsTrace.steps.find((x) => x.iter === Number(btn.dataset.step));
-            const tool = step && step.tools[Number(btn.dataset.tool)];
-            if (!tool) return;
-            let detail = btn.nextElementSibling;
-            if (detail && detail.classList.contains("trace-detail")) {
-                detail.remove();  // toggle
-                return;
-            }
+    // 6. 报告节点
+    addNode(mk("dag-node dag-end", "报告"), xEnd, midY - PILL_H / 2, PILL_W, PILL_H);
+
+    // 7. 连线: 节点入场后描线 (stroke-dashoffset 过渡), reduced-motion 时跳过由 CSS 兜底
+    edgePaths.forEach((d, i) => {
+        const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        p.setAttribute("d", d);
+        svg.appendChild(p);
+        if (reduced) return;
+        const len = p.getTotalLength();
+        p.style.strokeDasharray = String(len);
+        p.style.strokeDashoffset = String(len);
+        p.getBoundingClientRect();  // 强制回流, 让初始 dashoffset 先生效再触发过渡
+        p.style.transition = `stroke-dashoffset .3s var(--ease-out) ${120 + i * 15}ms`;
+        p.style.strokeDashoffset = "0";
+    });
+
+    // 8. 节点入场错峰: 每个节点延迟 40ms (动画本体在 CSS dagNodeIn)
+    if (!reduced) nodes.forEach((el, i) => { el.style.animationDelay = `${i * 40}ms`; });
+
+    // 9. 工具节点点击 → 画布下方展开 输入/输出 详情 (同时只开一个, 再点同一个收起)
+    let openedKey = "";
+    canvas.addEventListener("click", (e) => {
+        const btn = e.target.closest(".trace-tool");
+        if (!btn) return;
+        const step = aiopsTrace.steps[Number(btn.dataset.step)];
+        const tool = step && step.tools[Number(btn.dataset.tool)];
+        if (!tool) return;
+        const key = `${btn.dataset.step}:${btn.dataset.tool}`;
+        let detail = tl.querySelector(".trace-detail");
+        if (detail && openedKey === key) { detail.remove(); openedKey = ""; return; }
+        if (!detail) {
             detail = document.createElement("div");
             detail.className = "trace-detail";
-            detail.innerHTML = `
-                <div class="trace-detail-block"><div class="trace-detail-label">输入</div><pre>${escapeHtml(tool.args || "(无)")}</pre></div>
-                <div class="trace-detail-block"><div class="trace-detail-label">输出</div><pre>${escapeHtml(tool.result || "(无)")}</pre></div>`;
-            btn.after(detail);
-        });
+            tl.appendChild(detail);
+        }
+        detail.innerHTML = `
+            <div class="trace-detail-block"><div class="trace-detail-label">输入</div><pre>${escapeHtml(tool.args || "(无)")}</pre></div>
+            <div class="trace-detail-block"><div class="trace-detail-label">输出</div><pre>${escapeHtml(tool.result || "(无)")}</pre></div>`;
+        openedKey = key;
     });
 
     wrap.classList.remove("hidden");
@@ -1101,28 +1195,82 @@ function escapeHtml(s) {
         .replace(/"/g, "&quot;");
 }
 
+// ---- Markdown 表格 (容错解析: 兼容真实 LLM 输出缺首尾管道等情况) ----
+
+// 拆一行表格: 去掉首尾 | 后按 | 切分, 并剥掉两端空单元格 (中间的空单元格保留占位)
+function splitTableRow(line) {
+    let s = line.trim();
+    if (s.startsWith("|")) s = s.slice(1);
+    if (s.endsWith("|")) s = s.slice(0, -1);
+    const cells = s.split("|").map((c) => c.trim());
+    while (cells.length && cells[0] === "") cells.shift();
+    while (cells.length && cells[cells.length - 1] === "") cells.pop();
+    return cells;
+}
+
+// 分隔行: 只含 | - : 空白, 且至少有一个 --- 段
+function isTableSeparator(line) {
+    if (!/^[\s|:-]*$/.test(line) || !line.includes("-")) return false;
+    return splitTableRow(line).some((c) => /^:?-+:?$/.test(c));
+}
+
+// 表头/数据行: 以 | 开头或行内含 | (容忍缺首尾管道)
+function isTableRowLine(line) {
+    return line.includes("|");
+}
+
+// 一个表格块 → HTML; bodyLines 里的分隔行会被消费掉并解析出列对齐 (:--- 左 / :---: 中 / ---: 右)
+function mdTableToHtml(headerLine, bodyLines) {
+    const aligns = [];
+    const rows = [];
+    for (const line of bodyLines) {
+        if (isTableSeparator(line)) {
+            splitTableRow(line).forEach((c, i) => {
+                const l = c.startsWith(":"), r = c.endsWith(":");
+                aligns[i] = l && r ? "center" : r ? "right" : "left";
+            });
+            continue;
+        }
+        rows.push(splitTableRow(line));
+    }
+    const ths = splitTableRow(headerLine);
+    const alignAttr = (i) =>
+        aligns[i] && aligns[i] !== "left" ? ` style="text-align: ${aligns[i]}"` : "";
+    const thead = `<thead><tr>${ths.map((t, i) => `<th${alignAttr(i)}>${t}</th>`).join("")}</tr></thead>`;
+    const tbody = `<tbody>${rows
+        .map((r) => `<tr>${ths.map((_, i) => `<td${alignAttr(i)}>${r[i] ?? ""}</td>`).join("")}</tr>`)
+        .join("")}</tbody>`;
+    return `<div class="md-table-wrap"><table>${thead}${tbody}</table></div>`;
+}
+
+// 逐行扫描, 把表格块 (表头 + 分隔行 + 连续数据行) 替换为 HTML 表格, 其余行原样返回
+function scanMarkdownTables(text) {
+    const lines = text.split("\n");
+    const out = [];
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (isTableRowLine(line) && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+            const body = [lines[i + 1]];   // 分隔行一并传入, 供解析列对齐
+            let j = i + 2;
+            while (j < lines.length && isTableRowLine(lines[j])) { body.push(lines[j]); j++; }
+            out.push(mdTableToHtml(line, body));
+            i = j - 1;
+        } else {
+            out.push(line);
+        }
+    }
+    return out.join("\n");
+}
+
 // 极简 Markdown -> HTML (够用即可, 不引第三方库)
-// v2: 支持表格 / 引用块 / 更语义化的结构
+// v3: 表格抽为独立函数 + 容错解析 (缺首尾管道 / 列对齐)
 function renderMarkdown(md) {
     if (!md) return "";
     let s = String(md).replace(/\\n/g, "\n").replace(/\\t/g, "\t");
     let h = escapeHtml(s);
 
-    // 表格: | a | b | 换行 |---|---| 换行 | 1 | 2 |
-    h = h.replace(
-        /(?:^\|\s*(.+)\s*\|$)\n(?:^\|\s*[-:| ]+\s*\|$)\n((?:^\|.*\|\s*$\n?)+)/gm,
-        (m, headerRow, bodyRows) => {
-            const ths = headerRow.split("|").map((c) => c.trim()).filter(Boolean);
-            const rows = bodyRows.trim().split("\n").map((r) =>
-                r.replace(/^\||\|$/g, "").split("|").map((c) => c.trim())
-            );
-            const thead = `<thead><tr>${ths.map((t) => `<th>${t}</th>`).join("")}</tr></thead>`;
-            const tbody = `<tbody>${rows
-                .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
-                .join("")}</tbody>`;
-            return `<div class="md-table-wrap"><table>${thead}${tbody}</table></div>`;
-        }
-    );
+    // 表格: 在已转义文本上做结构化转换, 之后的粗体/行内码替换会继续作用在生成的 html 上
+    h = scanMarkdownTables(h);
 
     // 代码块
     h = h.replace(/```([\s\S]*?)```/g, (_, code) => `<pre><code>${code}</code></pre>`);
