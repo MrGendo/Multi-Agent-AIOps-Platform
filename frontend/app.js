@@ -181,22 +181,34 @@ function renderTrace() {
     const TOOL_W = 150, TOOL_H = 28, TOOL_GAP = 6;         // 工具子节点
     const PILL_W = 84, PILL_H = 36;                        // 开始/报告 胶囊
     const PLAN_W = 170, PLAN_H = 48;                       // Planner 节点
+    const ORCH_W = 150, ORCH_H = 44;                       // 编排 (选派专家) 节点
     const COL_GAP = 70, TOOL_COL_GAP = 46, ROW_GAP = 14;   // 列距 / 步骤纵距
 
-    // 1. 纵向布局: 每个步骤占一个"块", 块高 = max(步骤节点高, 工具栈高), 避免工具互相压叠
-    const blocks = aiopsTrace.steps.map((s) => {
-        const toolsH = s.tools.length ? TOOL_H * s.tools.length + TOOL_GAP * (s.tools.length - 1) : 0;
-        return { step: s, h: Math.max(STEP_H, toolsH + 6) };
-    });
-    const contentH = blocks.reduce((n, b) => n + b.h, 0) + ROW_GAP * (blocks.length - 1);
+    // 0. 拆出编排伪步骤: skills_selected 写入的 iter=0 无工具条目只是选派专家,
+    //    独立渲染在 开始 与 Planner 之间的编排列; iter=0 但带工具的是真实执行, 仍按普通步骤布局
+    const orchStep = aiopsTrace.steps.find((s) => s.iter === 0 && !s.tools.length) || null;
 
-    // 2. 横向五列: 开始 → Planner → 步骤 → 工具子列 → 报告
+    // 1. 纵向布局: 每个步骤占一个"块", 块高 = max(步骤节点高, 工具栈高), 避免工具互相压叠
+    //    idx 保留在 aiopsTrace.steps 中的原始下标, 工具芯片点击回查数据时要用
+    const blocks = aiopsTrace.steps
+        .map((s, idx) => {
+            const toolsH = s.tools.length ? TOOL_H * s.tools.length + TOOL_GAP * (s.tools.length - 1) : 0;
+            return { idx, step: s, h: Math.max(STEP_H, toolsH + 6) };
+        })
+        .filter((b) => b.step !== orchStep);
+    const contentH = blocks.reduce((n, b) => n + b.h, 0) + (blocks.length ? ROW_GAP * (blocks.length - 1) : 0);
+
+    // 2. 横向列: 开始 → (选派专家) → Planner → 步骤 → 工具子列 → 报告
     const xStart = 0;
-    const xPlan = xStart + PILL_W + COL_GAP;
+    const xOrch = xStart + PILL_W + COL_GAP;               // 编排列, 仅 orchStep 存在时占用
+    const xPlan = orchStep ? xOrch + ORCH_W + COL_GAP : xStart + PILL_W + COL_GAP;
     const xStep = xPlan + PLAN_W + COL_GAP;
     const xTool = xStep + STEP_W + TOOL_COL_GAP;
     const hasTools = blocks.some((b) => b.step.tools.length);
-    const xEnd = (hasTools ? xTool + TOOL_W : xStep + STEP_W) + COL_GAP;
+    // 退化场景: 计划未生成 (blocks 为空) 时不画 Planner, 报告紧跟选派专家
+    const xEnd = blocks.length
+        ? (hasTools ? xTool + TOOL_W : xStep + STEP_W) + COL_GAP
+        : xOrch + ORCH_W + COL_GAP;
     const canvasW = xEnd + PILL_W;
     const canvasH = Math.max(contentH, PLAN_H);
     const midY = canvasH / 2;
@@ -230,20 +242,32 @@ function renderTrace() {
         return el;
     };
 
-    // 4. 枢纽节点: 开始 / Planner / 报告, 纵向居中于画布
-    const totalTools = aiopsTrace.steps.reduce((n, s) => n + s.tools.length, 0);
+    // 4. 枢纽节点: 开始 / 编排 / Planner, 纵向居中于画布 (无执行步骤时 Planner 不出现)
+    const totalTools = blocks.reduce((n, b) => n + b.step.tools.length, 0);
     addNode(mk("dag-node dag-start", "开始"), xStart, midY - PILL_H / 2, PILL_W, PILL_H);
-    addNode(
-        mk("dag-node dag-planner",
-            `<div class="dag-planner-title">Planner</div>
-             <div class="dag-planner-sub">计划 ${aiopsTrace.steps.length} 步 · ${totalTools} 工具</div>`),
-        xPlan, midY - PLAN_H / 2, PLAN_W, PLAN_H
-    );
-    edgePaths.push(bez(xStart + PILL_W, midY, xPlan, midY));
+    if (orchStep) {
+        // 去掉 "Orchestrator 选派专家:" 前缀只留专家名; 无该前缀时整段原文展示
+        const names = orchStep.step.replace(/^Orchestrator 选派专家:\s*/, "") || "选派专家";
+        const orchEl = mk("dag-node dag-orch",
+            `<div class="dag-orch-label">Orchestrator</div>
+             <div class="dag-orch-names">${escapeHtml(names)}</div>`);
+        orchEl.title = orchStep.step;  // 名单超宽截断后靠 title 看全文
+        addNode(orchEl, xOrch, midY - ORCH_H / 2, ORCH_W, ORCH_H);
+        edgePaths.push(bez(xStart + PILL_W, midY, xOrch, midY));
+    }
+    if (blocks.length) {
+        addNode(
+            mk("dag-node dag-planner",
+                `<div class="dag-planner-title">Planner</div>
+                 <div class="dag-planner-sub">计划 ${blocks.length} 步 · ${totalTools} 工具</div>`),
+            xPlan, midY - PLAN_H / 2, PLAN_W, PLAN_H
+        );
+        edgePaths.push(bez(orchStep ? xOrch + ORCH_W : xStart + PILL_W, midY, xPlan, midY));
+    }
 
     // 5. 步骤节点纵向铺开, 从 Planner 扇出; 各自的工具子节点挂在右侧子列, 最终汇入报告
     let yCur = 0;
-    blocks.forEach((b, i) => {
+    blocks.forEach((b) => {
         const s = b.step;
         const cy = yCur + STEP_H / 2;
         const title = s.step || `步骤 ${s.iter}`;
@@ -261,7 +285,7 @@ function renderTrace() {
             const tcy = ty + TOOL_H / 2;
             const btn = document.createElement("button");
             btn.className = `trace-tool ${t.status === "ok" ? "ok" : "fail"}`;
-            btn.dataset.step = String(i);
+            btn.dataset.step = String(b.idx);  // 用原始下标, 点击时才能回查到 aiopsTrace.steps 对应条目
             btn.dataset.tool = String(ti);
             btn.innerHTML = `
                 <span class="trace-tool-icon">${t.status === "ok" ? "✓" : "✗"}</span>
@@ -276,8 +300,9 @@ function renderTrace() {
         yCur += b.h + ROW_GAP;
     });
 
-    // 6. 报告节点
+    // 6. 报告节点 (退化场景下由选派专家直接汇入, 不经过 Planner)
     addNode(mk("dag-node dag-end", "报告"), xEnd, midY - PILL_H / 2, PILL_W, PILL_H);
+    if (orchStep && !blocks.length) edgePaths.push(bez(xOrch + ORCH_W, midY, xEnd, midY));
 
     // 7. 连线: 节点入场后描线 (stroke-dashoffset 过渡), reduced-motion 时跳过由 CSS 兜底
     edgePaths.forEach((d, i) => {

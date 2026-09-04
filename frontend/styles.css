@@ -483,6 +483,10 @@ body {
 .dag-node.dag-planner { flex-direction: column; gap: 1px; }
 .dag-planner-title { font-size: 12px; font-weight: 590; color: var(--text-1); }
 .dag-planner-sub { font-family: var(--mono); font-size: 10px; color: var(--text-4); }
+/* 编排节点 (选派专家): 夹在 开始 与 Planner 之间的小节点, 边框比 dag-start 的 accent 染色更收敛 */
+.dag-node.dag-orch { flex-direction: column; gap: 1px; padding: 4px 10px; border-color: rgba(113, 112, 255, 0.35); }
+.dag-orch-label { font-family: var(--mono); font-size: 9.5px; font-weight: 590; color: var(--accent-hover); letter-spacing: .02em; }
+.dag-orch-names { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; font-weight: 510; color: var(--text-2); }
 .dag-node.dag-step { justify-content: flex-start; gap: 8px; padding: 0 10px; }
 .dag-step-num {
     flex-shrink: 0; width: 17px; height: 17px; border-radius: 50%;

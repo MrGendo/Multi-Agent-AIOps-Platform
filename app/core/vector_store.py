@@ -49,17 +49,16 @@ def get_vector_store() -> Milvus:
     else:
         uri = f"http://{settings.milvus_host}:{settings.milvus_port}"
 
-    if uri.startswith("http"):
-        # 先创建 MilvusClient, 拿到内部 alias (形如 "cm-xxxxxx")
-        probe_client = MilvusClient(uri=uri)
-        internal_alias = probe_client._using
+    # 先创建 MilvusClient, 拿到内部 alias (形如 "cm-xxxxxx")
+    probe_client = MilvusClient(uri=uri)
+    internal_alias = probe_client._using
 
-        # 把同一 alias 注册到 ORM connections registry
-        # (pymilvus.orm.Collection 会从这里查 connection)
-        if internal_alias not in [c[0] for c in connections.list_connections()]:
-            connections.connect(alias=internal_alias, uri=uri)
-    else:
-        internal_alias = ""  # lite 模式不需要 ORM alias
+    # 把同一 alias 注册到 ORM connections registry
+    # (pymilvus.orm.Collection 会从这里查 connection)
+    # lite 模式同样需要: langchain_milvus 的 _extract_fields() 无条件用 ORM
+    # Collection, 不注册 alias 会 ConnectionNotExistException (2026-09-04 入库事故)
+    if internal_alias not in [c[0] for c in connections.list_connections()]:
+        connections.connect(alias=internal_alias, uri=uri)
 
     logger.info(
         f"创建 VectorStore: collection={settings.milvus_collection}, "
