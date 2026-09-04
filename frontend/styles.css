@@ -24,6 +24,8 @@
     --amber: #f59e0b;
     --red: #f87171;
     --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    /* 共享缓动令牌: 快出慢停, 供主题按钮 / DAG 动效统一使用 */
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 /* 亮色主题: Linear light neutrals — #f7f8f8 bg / #ffffff cards / #5e6ad2 accent 保持 */
@@ -411,10 +413,11 @@ body {
 
 /* ---------- Markdown 表格 ---------- */
 .md-table-wrap { overflow-x: auto; margin: 10px 0; border: 1px solid var(--border-subtle); border-radius: 8px; }
-.prose table, .chat-msg table { border-collapse: collapse; width: 100
-/* ---------- Markdown 表格 ---------- */
-.md-table-wrap { overflow-x: auto; margin: 10px 0; border: 1px solid var(--border-subtle); border-radius: 8px; }
 .prose table, .chat-msg table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+/* 斑马纹用半透明色, 深浅主题各自安全 */
+.prose tbody tr:nth-child(even), .chat-msg tbody tr:nth-child(even) { background: rgba(255, 255, 255, 0.03); }
+:root[data-theme="light"] .prose tbody tr:nth-child(even),
+:root[data-theme="light"] .chat-msg tbody tr:nth-child(even) { background: rgba(11, 12, 13, 0.03); }
 .prose th, .chat-msg th {
     text-align: left; padding: 8px 12px; font-weight: 590; color: var(--text-1);
     background: rgba(94, 106, 210, 0.10); border-bottom: 1px solid var(--border);
@@ -428,70 +431,98 @@ body {
     border-radius: 0 6px 6px 0;
 }
 
-/* ---------- 主题切换按钮 ---------- */
+/* ---------- 主题切换按钮 (双图标叠放: 交叉淡入 + 旋转, data-theme 驱动, 无 JS class 切换) ---------- */
 .theme-toggle {
-    display: inline-flex; align-items: center; justify-content: center;
+    position: relative;
     width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
     background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-subtle);
-    color: var(--text-3); transition: all .15s;
+    color: var(--text-3);
+    transition: color .2s var(--ease-out), background-color .2s var(--ease-out),
+                border-color .2s var(--ease-out), transform .16s var(--ease-out);
 }
 .theme-toggle:hover { color: var(--text-1); background: rgba(255, 255, 255, 0.08); }
+.theme-toggle:active { transform: scale(0.97); }
 :root[data-theme="light"] .theme-toggle { background: rgba(11, 12, 13, 0.04); }
 :root[data-theme="light"] .theme-toggle:hover { background: rgba(11, 12, 13, 0.08); }
-.theme-toggle svg { width: 14px; height: 14px; }
-.icon-moon { display: none; }
-:root[data-theme="light"] .icon-sun { display: none; }
-:root[data-theme="light"] .icon-moon { display: block; }
 
-/* ---------- Agent 执行流程图 ---------- */
+/* 双 SVG 绝对定位叠放在圆心, 显隐只动 opacity/rotate */
+.theme-toggle svg {
+    position: absolute; top: 50%; left: 50%; width: 14px; height: 14px;
+    transition: opacity .2s var(--ease-out), transform .2s var(--ease-out);
+}
+.theme-toggle .icon-sun  { opacity: 1; transform: translate(-50%, -50%) rotate(0deg); }
+.theme-toggle .icon-moon { opacity: 0; transform: translate(-50%, -50%) rotate(-90deg); }
+:root[data-theme="light"] .theme-toggle .icon-sun  { opacity: 0; transform: translate(-50%, -50%) rotate(90deg); }
+:root[data-theme="light"] .theme-toggle .icon-moon { opacity: 1; transform: translate(-50%, -50%) rotate(0deg); }
+
+/* ---------- Agent 执行流程图 (DAG: 开始 → Planner → 步骤×工具 → 报告) ---------- */
 .trace-wrap {
     flex: 1; min-height: 0; margin-bottom: 12px;
     background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle);
     border-radius: 10px; padding: 14px 16px;
-    max-height: 320px;
+    max-height: 380px; overflow: auto;
 }
 :root[data-theme="light"] .trace-wrap { background: #fff; }
-.trace-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.trace-overview { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; font-size: 11.5px; }
-.trace-node {
-    padding: 3px 10px; border-radius: 9999px; color: var(--text-2);
-    background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-subtle);
-    font-weight: 510;
-}
-:root[data-theme="light"] .trace-node { background: var(--surface); }
-.trace-node.start { color: var(--accent-hover); border-color: rgba(113, 112, 255, 0.5); }
-.trace-node.end { color: var(--green); border-color: rgba(16, 185, 129, 0.5); }
-.trace-arrow { color: var(--text-4); }
-.trace-step { display: flex; gap: 12px; margin-bottom: 12px; }
-.trace-step-rail { display: flex; flex-direction: column; align-items: center; }
-.trace-step-dot {
-    width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+.trace-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+
+/* 画布: JS 计算好宽高, 节点绝对定位, 连线垫在节点下方 */
+.trace-canvas { position: relative; }
+.trace-svg { position: absolute; top: 0; left: 0; z-index: 0; pointer-events: none; }
+.trace-svg path { stroke: var(--border); stroke-width: 1.5; fill: none; }
+
+.dag-node {
+    position: absolute; z-index: 1;
     display: flex; align-items: center; justify-content: center;
-    font-family: var(--mono); font-size: 10.5px; font-weight: 500;
-    color: var(--accent-hover); background: rgba(94, 106, 210, 0.16);
-    border: 1px solid rgba(113, 112, 255, 0.35);
+    border-radius: 8px; font-size: 11.5px; font-weight: 510; color: var(--text-2);
+    background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-subtle);
+    animation: dagNodeIn .25s var(--ease-out) backwards;
 }
-.trace-step-rail::after { content: ""; flex: 1; width: 1.5px; margin-top: 4px; background: var(--border-subtle); }
-.trace-step:last-child .trace-step-rail::after { display: none; }
-.trace-step-body { flex: 1; min-width: 0; padding-bottom: 4px; }
-.trace-step-title { font-size: 12.5px; font-weight: 590; color: var(--text-1); margin-bottom: 6px; }
-.trace-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+:root[data-theme="light"] .dag-node { background: var(--surface); }
+.dag-node.dag-start { border-radius: 9999px; color: var(--accent-hover); border-color: rgba(113, 112, 255, 0.5); }
+.dag-node.dag-end   { border-radius: 9999px; color: var(--green); border-color: rgba(16, 185, 129, 0.5); }
+.dag-node.dag-planner { flex-direction: column; gap: 1px; }
+.dag-planner-title { font-size: 12px; font-weight: 590; color: var(--text-1); }
+.dag-planner-sub { font-family: var(--mono); font-size: 10px; color: var(--text-4); }
+.dag-node.dag-step { justify-content: flex-start; gap: 8px; padding: 0 10px; }
+.dag-step-num {
+    flex-shrink: 0; width: 17px; height: 17px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 10px; color: var(--accent-hover);
+    background: rgba(94, 106, 210, 0.16);
+}
+.dag-step-title {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 11.5px; font-weight: 510; color: var(--text-1);
+}
+
+/* 工具子节点: 复用 .trace-tool 类名, 绝对定位在步骤右侧的紧凑纵向子列 */
 .trace-tool {
-    display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+    position: absolute; z-index: 1;
+    display: inline-flex; align-items: center; gap: 6px; padding: 0 9px;
     border-radius: 6px; cursor: pointer; font-size: 11px; font-family: var(--mono);
     background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle);
-    color: var(--text-2); transition: all .15s;
+    color: var(--text-2);
+    transition: border-color .15s var(--ease-out), background-color .15s var(--ease-out), transform .15s var(--ease-out);
+    animation: dagNodeIn .25s var(--ease-out) backwards;
 }
 :root[data-theme="light"] .trace-tool { background: var(--surface); }
-.trace-tool:hover { border-color: var(--border); transform: translateY(-1px); }
-.trace-tool .trace-tool-icon { font-size: 10px; }
+.trace-tool:hover { border-color: var(--border); background: rgba(255, 255, 255, 0.06); transform: translateY(-1px); }
+.trace-tool .trace-tool-icon { font-size: 10px; flex-shrink: 0; }
 .trace-tool.ok .trace-tool-icon { color: var(--green); }
 .trace-tool.fail .trace-tool-icon { color: var(--red); }
 .trace-tool.fail { border-color: rgba(248, 113, 113, 0.4); }
-.trace-tool-ms { color: var(--text-4); font-size: 10px; }
-.trace-step-preview { font-size: 11px; color: var(--text-4); line-height: 1.5; }
+.trace-tool .trace-tool-name {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left;
+}
+.trace-tool-ms { color: var(--text-4); font-size: 10px; flex-shrink: 0; }
+
+/* 节点入场: 透明度 + 0.95→1 缩放 (禁止 scale(0) 爆闪), JS 按节点序号设置 animation-delay 错峰 */
+@keyframes dagNodeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+
+/* 工具 输入/输出 详情面板: 挂在画布下方, 点击工具节点展开 (同时只开一个) */
 .trace-detail {
-    width: 100%; margin: 2px 0 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    width: 100%; margin: 10px 0 4px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    animation: fadeIn .2s ease-out;
 }
 @media (max-width: 800px) { .trace-detail { grid-template-columns: 1fr; } }
 .trace-detail-block {
@@ -504,4 +535,17 @@ body {
     margin: 0; font-family: var(--mono); font-size: 10.5px; line-height: 1.55;
     color: var(--text-2); white-space: pre-wrap; word-break: break-word;
     max-height: 200px; overflow-y: auto;
+}
+
+/* ---------- 动效无障碍: 用户偏好减少动效时, 去掉旋转/缩放/描线, 仅保留透明度变化 ---------- */
+@media (prefers-reduced-motion: reduce) {
+    .theme-toggle:active { transform: none; }
+    .theme-toggle .icon-sun, .theme-toggle .icon-moon,
+    :root[data-theme="light"] .theme-toggle .icon-sun,
+    :root[data-theme="light"] .theme-toggle .icon-moon {
+        transform: translate(-50%, -50%);
+        transition: opacity .2s var(--ease-out);
+    }
+    .dag-node, .trace-tool, .trace-detail { animation: none; }
+    .trace-svg path { transition: none !important; stroke-dashoffset: 0 !important; }
 }
