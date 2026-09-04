@@ -55,12 +55,30 @@ class Settings(BaseSettings):
     )
 
     # ==================== 智谱 GLM (OpenAI 兼容) ====================
-    # 当模型名以 "glm" 开头 (glm-4.7 / glm-4.7-flash 等) 时,
+    # 当模型名以 "glm" 开头 (glm-4.7 / glm-5.3-flash 等) 时,
     # get_chat_llm 自动切到智谱 bigmodel 的 base_url + api_key.
     glm_api_key: str = Field(default="", description="智谱 API Key (open.bigmodel.cn)")
     glm_base_url: str = Field(
         default="https://open.bigmodel.cn/api/paas/v4",
         description="智谱 GLM OpenAI 兼容 URL",
+    )
+    # GLM Coding Plan (编程套餐): 额度走 Anthropic 兼容端点 /api/anthropic,
+    # 不走 paas/v4 (那里只有免费/按量额度, 会 1113 余额不足).
+    # 置 true 后 glm* 模型路由到 Anthropic 协议, 套餐额度内无 429 挤兑.
+    glm_use_coding_plan: bool = Field(
+        default=False,
+        description="使用 GLM Coding Plan 的 Anthropic 兼容端点 (编程套餐额度)",
+    )
+    glm_anthropic_base_url: str = Field(
+        default="https://open.bigmodel.cn/api/anthropic",
+        description="智谱 GLM Coding Plan Anthropic 兼容 URL",
+    )
+    glm_min_request_interval_sec: float = Field(
+        default=0.0,
+        description=(
+            "GLM 请求最小间隔秒数 (免费/低配 key 限频场景). "
+            ">0 时所有 GLM 调用前强制 sleep, 避开 1302 速率限制; 0 = 不限."
+        ),
     )
     dashscope_embedding_model: str = Field(
         default="text-embedding-v4", description="Embedding 模型"
@@ -70,6 +88,15 @@ class Settings(BaseSettings):
     # ==================== Milvus 向量数据库 ====================
     milvus_host: str = Field(default="localhost", description="Milvus 主机")
     milvus_port: int = Field(default=19530, description="Milvus 端口")
+    milvus_lite_path: str = Field(
+        default="",
+        description=(
+            "milvus-lite 嵌入式数据库本地路径 (如 ./data/milvus_lite.db). "
+            "非空时启用 lite 模式 — 无需 Docker/服务端, 数据落本地文件. "
+            "注意不能叫 MILVUS_URI: pymilvus 的 Config 类把该环境变量名 "
+            "占用为 ORM 连接地址, 值非 http:// 会让 import pymilvus 直接炸."
+        ),
+    )
     milvus_collection: str = Field(default="multi_agent_kb", description="Collection 名")
     milvus_timeout_ms: int = Field(default=10000, description="连接超时 (毫秒)")
 
@@ -410,12 +437,25 @@ class Settings(BaseSettings):
         """运行时校验 (启动时调用).
 
         与 Pydantic 字段校验不同, 这里检查的是运行所需的实际值.
+        多供应商: 当前生效的 chat 模型对应的 key 任一有效即可
+        (dashscope* → DASHSCOPE, glm* → GLM, deepseek* → DeepSeek).
         """
-        if not self.dashscope_api_key or self.dashscope_api_key.startswith("sk-your"):
-            raise RuntimeError(
-                "DASHSCOPE_API_KEY 未配置. 请编辑 .env 文件填入真实 API key. "
-                "申请地址: https://bailian.console.aliyun.com/"
-            )
+        chat_model = (self.dashscope_chat_model or "").lower()
+        if chat_model.startswith("glm"):
+            if self.glm_api_key and not self.glm_api_key.startswith("sk-your"):
+                return  # GLM 路由已具备有效 key
+        elif chat_model.startswith("deepseek"):
+            if self.deepseek_api_key:
+                return
+        else:
+            if self.dashscope_api_key and not self.dashscope_api_key.startswith("sk-your"):
+                return
+
+        raise RuntimeError(
+            "当前配置的模型没有可用的 API key. 请检查 .env: "
+            "dashscope 模型需 DASHSCOPE_API_KEY, glm* 模型需 GLM_API_KEY, "
+            "deepseek* 模型需 DEEPSEEK_API_KEY."
+        )
 
 
 @lru_cache(maxsize=1)
