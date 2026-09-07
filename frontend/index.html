@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css?v=20260907g">
+    <link rel="stylesheet" href="/styles.css?v=20260907h">
 </head>
 <body>
 
@@ -80,10 +80,10 @@
             <!-- 横排 2: 监控指标条 (整行) -->
             <div class="aiops-monrow">
                 <div class="right-head">
-                    <span class="panel-title">诊断监控</span>
+                    <span id="aiops-right-title" class="panel-title">诊断监控</span>
                     <span id="aiops-status" class="status-chip mono">未开始</span>
                 </div>
-                <div class="metric-grid">
+                <div id="aiops-monitor" class="metric-grid">
                     <div class="metric">
                         <div class="metric-label">当前步骤</div>
                         <div id="mon-step" class="metric-value accent">—</div>
@@ -228,6 +228,6 @@
     <div id="drawer-body" class="drawer-body prose scroll-pane"></div>
 </aside>
 
-<script src="/app.js?v=20260907g"></script>
+<script src="/app.js?v=20260907h"></script>
 </body>
 </html>
