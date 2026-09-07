@@ -62,7 +62,9 @@ class AgentHarness:
 5. 故障域映射:
    - 主机资源类 (CPU 高 / 内存高 / OOM / 磁盘满 / 电脑卡 / 本机卡顿) → host_resource_diagnosis
    - 网络连通性 (网址打不开 / 接口超时 / dns / 502 / 连不上 / 端口) → network_diagnosis
-   - 容器类 (docker / 容器挂了 / Milvus 挂了 / 容器重启) → container_diagnosis
+   - 单机容器类 (docker / 容器挂了 / Milvus 挂了 / 容器重启, 指单机 Docker, 不含 K8s 集群编排) → container_diagnosis
+   - 数据库类 (mysql / postgresql / redis / mongodb / 慢查询 / 主从 / used_memory) → database_diagnosis
+   - K8s/容器编排 (k8s / kubernetes / pod / deployment / 节点 NotReady / oomkilled) → k8s_diagnosis
    - 其它无法归类 → generic_oncall
 
 # 输出格式
