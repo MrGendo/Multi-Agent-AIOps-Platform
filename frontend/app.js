@@ -62,12 +62,13 @@ checkHealth();
 setInterval(checkHealth, 15000);
 
 // ============================================================
-// Skill 列表 (页面加载时拉一次, 后续诊断时高亮选中项)
+// Skill 列表 (页面加载时拉一次, 点击卡片开抽屉看完整 Playbook)
 // ============================================================
+// 风险徽章配色已迁到 CSS 变量 (.risk-pill.low/medium/high), JS 只留文案
 const RISK_BADGE = {
-    low:    { color: "bg-emerald-100 text-emerald-700 border-emerald-200", label: "低风险" },
-    medium: { color: "bg-amber-100 text-amber-700 border-amber-200",       label: "中风险" },
-    high:   { color: "bg-red-100 text-red-700 border-red-200",             label: "高风险" },
+    low:    { label: "低风险" },
+    medium: { label: "中风险" },
+    high:   { label: "高风险" },
 };
 
 async function loadSkills() {
@@ -90,11 +91,26 @@ async function loadSkills() {
             const card = document.createElement("div");
             card.className = "skill-card";
             card.dataset.skillName = s.name;
-            card.title = `${s.display_name || s.name} · ${s.risk_level || "low"}`;
+            card.title = `${s.display_name || s.name} · 点击查看 Playbook`;
+            card.tabIndex = 0;
+            card.setAttribute("role", "button");
+            card.setAttribute("aria-label", `查看 ${s.display_name || s.name} Playbook`);
+            const badge = RISK_BADGE[s.risk_level] || { label: s.risk_level || "未知风险" };
             card.innerHTML = `
-                <div class="sk-name truncate">${escapeHtml(s.display_name)}</div>
+                <div class="sk-name truncate font-semibold">${escapeHtml(s.display_name)}</div>
                 <div class="sk-id truncate">${escapeHtml(s.name)}</div>
+                <div class="sk-meta">
+                    <span class="risk-pill ${escapeHtml(s.risk_level || "low")}">${escapeHtml(badge.label)}</span>
+                    <span class="sk-tools">${(s.allowed_tools || []).length} 工具</span>
+                </div>
             `;
+            card.addEventListener("click", () => openSkillDrawer(s, card));
+            card.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openSkillDrawer(s, card);
+                }
+            });
             listEl.appendChild(card);
         });
     } catch (e) {
@@ -102,6 +118,89 @@ async function loadSkills() {
     }
 }
 loadSkills();
+
+// ============================================================
+// Skill 详情抽屉 (右侧滑入, 完整渲染 playbook Markdown)
+// ============================================================
+const drawerEl = document.getElementById("skill-drawer");
+const drawerOverlayEl = document.getElementById("drawer-overlay");
+const drawerCloseEl = document.getElementById("drawer-close");
+const drawerBodyEl = document.getElementById("drawer-body");
+let drawerReturnEl = null; // 关闭后焦点归还的触发卡片
+let drawerReqSeq = 0;     // 递增序号: 丢弃切换/关闭后才回来的过期响应
+
+function setDrawerOpen(open) {
+    drawerEl.classList.toggle("open", open);
+    drawerOverlayEl.classList.toggle("open", open);
+}
+
+function closeSkillDrawer() {
+    if (!drawerEl.classList.contains("open")) return;
+    setDrawerOpen(false);
+    const el = drawerReturnEl;
+    drawerReturnEl = null;
+    drawerReqSeq += 1; // 使在途请求作废
+    if (el && document.contains(el)) el.focus();
+}
+
+drawerCloseEl.addEventListener("click", closeSkillDrawer);
+drawerOverlayEl.addEventListener("click", closeSkillDrawer);
+document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeSkillDrawer();
+});
+
+async function openSkillDrawer(skill, fromEl) {
+    drawerReturnEl = fromEl || null;
+    // 头部与元信息来自列表数据, 先就位; playbook 再异步加载
+    document.getElementById("drawer-title").textContent = skill.display_name || skill.name;
+    document.getElementById("drawer-sub").textContent = skill.name;
+    const badge = RISK_BADGE[skill.risk_level] || { label: skill.risk_level || "未知风险" };
+    const riskEl = document.getElementById("drawer-risk");
+    riskEl.textContent = badge.label;
+    riskEl.className = `risk-pill ${escapeHtml(skill.risk_level || "low")}`;
+
+    const chipsEl = document.getElementById("drawer-triggers");
+    chipsEl.innerHTML = "";
+    (skill.triggers || []).forEach((t) => {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = t;
+        chipsEl.appendChild(chip);
+    });
+
+    const toolsEl = document.getElementById("drawer-tools");
+    toolsEl.innerHTML = "";
+    (skill.allowed_tools || []).forEach((t) => {
+        const item = document.createElement("span");
+        item.className = "tool-item";
+        item.textContent = t;
+        toolsEl.appendChild(item);
+    });
+
+    setDrawerOpen(true);
+    drawerCloseEl.focus();
+    loadPlaybook(skill.name);
+}
+
+async function loadPlaybook(name) {
+    const seq = drawerReqSeq;
+    drawerBodyEl.innerHTML = '<div class="drawer-skel"><div class="skel-bar"></div><div class="skel-bar"></div></div>';
+    try {
+        const r = await fetch(`${API}/skills/${encodeURIComponent(name)}`);
+        const data = await r.json();
+        if (data?.code !== "SUCCESS") throw new Error(data?.message || "加载失败");
+        if (seq !== drawerReqSeq) return; // 已切换/关闭, 丢弃
+        drawerBodyEl.innerHTML = renderMarkdown(data?.data?.playbook || "");
+    } catch (e) {
+        if (seq !== drawerReqSeq) return;
+        drawerBodyEl.innerHTML = `
+            <div class="drawer-error">
+                <span>Playbook 加载失败: ${escapeHtml(e.message)}</span>
+                <button type="button" class="btn-ghost drawer-retry">重试</button>
+            </div>`;
+        drawerBodyEl.querySelector(".drawer-retry").addEventListener("click", () => loadPlaybook(name));
+    }
+}
 
 function highlightSkill(skillName, reason, append = false) {
     if (!append) {

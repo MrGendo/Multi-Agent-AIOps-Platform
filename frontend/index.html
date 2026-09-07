@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css?v=20260904d">
+    <link rel="stylesheet" href="/styles.css?v=20260907a">
 </head>
 <body>
 
@@ -201,6 +201,28 @@
 
 <footer class="footer mono">Multi-Agent AIOps · LangChain v1.x · 2026</footer>
 
-<script src="/app.js?v=20260904d"></script>
+<!-- ============ Skill 详情抽屉 (点击 Skill 卡片弹出, 完整展示 Playbook) ============ -->
+<div id="drawer-overlay" class="drawer-overlay"></div>
+<aside id="skill-drawer" class="skill-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <header class="drawer-head">
+        <div class="drawer-head-main">
+            <h2 id="drawer-title" class="drawer-title"></h2>
+            <div class="drawer-sub-row">
+                <span id="drawer-sub" class="drawer-sub mono"></span>
+                <span id="drawer-risk" class="risk-pill"></span>
+            </div>
+        </div>
+        <button id="drawer-close" class="drawer-close" type="button" aria-label="关闭 Playbook 详情">×</button>
+    </header>
+    <div class="drawer-meta">
+        <div class="meta-label">触发词</div>
+        <div id="drawer-triggers" class="chip-row"></div>
+        <div class="meta-label">允许工具</div>
+        <div id="drawer-tools" class="tool-list mono"></div>
+    </div>
+    <div id="drawer-body" class="drawer-body prose scroll-pane"></div>
+</aside>
+
+<script src="/app.js?v=20260907a"></script>
 </body>
 </html>

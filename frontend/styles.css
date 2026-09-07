@@ -139,12 +139,26 @@ body {
 .skill-card {
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid var(--border-subtle);
-    border-radius: 8px; padding: 8px 10px; cursor: help;
+    border-radius: 8px; padding: 8px 10px; cursor: pointer;
     transition: transform .15s, background .15s, border-color .15s;
 }
 .skill-card:hover { background: rgba(255, 255, 255, 0.05); transform: translateY(-1px); }
+.skill-card:focus-visible { outline: none; border-color: var(--accent-bright); }
 .skill-card .sk-name { font-size: 12px; font-weight: 510; color: var(--text-2); }
 .skill-card .sk-id { font-family: var(--mono); font-size: 10px; color: var(--text-4); margin-top: 1px; }
+
+/* 卡片底行: 风险胶囊 + 工具数 */
+.sk-meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 7px; }
+.sk-tools { font-size: 10px; color: var(--text-4); flex-shrink: 0; }
+/* 风险胶囊: 半透明底 + 对应色文字, color-mix 跟随主题令牌自动适配亮/暗 */
+.risk-pill {
+    display: inline-block; font-size: 10px; font-weight: 510; line-height: 1;
+    padding: 3px 8px; border-radius: 10px; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.risk-pill.low    { color: var(--green); background: color-mix(in srgb, var(--green) 13%, transparent); }
+.risk-pill.medium { color: var(--amber); background: color-mix(in srgb, var(--amber) 15%, transparent); }
+.risk-pill.high   { color: var(--red);   background: color-mix(in srgb, var(--red) 13%, transparent); }
 .skill-card.skill-active {
     border-color: var(--accent-bright);
     background: rgba(94, 106, 210, 0.14);
@@ -156,6 +170,78 @@ body {
     50%      { box-shadow: 0 0 0 2px rgba(113, 112, 255, 0.75); }
 }
 .skill-reason { margin-top: 8px; font-size: 11.5px; color: var(--text-3); }
+
+/* ---------- Skill 详情抽屉 (右侧滑入, 只动 transform; 遮罩只动 opacity) ---------- */
+.drawer-overlay {
+    position: fixed; inset: 0; z-index: 90;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0; pointer-events: none;
+    transition: opacity .26s var(--ease-out);
+}
+.drawer-overlay.open { opacity: 1; pointer-events: auto; }
+:root[data-theme="light"] .drawer-overlay { background: rgba(11, 12, 13, 0.35); }
+
+.skill-drawer {
+    position: fixed; top: 0; right: 0; z-index: 100;
+    width: min(560px, 92vw); height: 100vh; height: 100dvh;
+    display: flex; flex-direction: column;
+    background: var(--panel); border-left: 1px solid var(--border);
+    /* 关闭态停在屏幕外; visibility 延迟切换避免关闭动画期间被聚焦 */
+    transform: translateX(100%); visibility: hidden;
+    transition: transform .26s var(--ease-out), visibility 0s .26s linear;
+}
+.skill-drawer.open {
+    transform: translateX(0); visibility: visible;
+    transition: transform .26s var(--ease-out);
+}
+
+.drawer-head {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+    padding: 18px 20px 14px; border-bottom: 1px solid var(--border-subtle);
+}
+.drawer-head-main { min-width: 0; }
+.drawer-title { margin: 0; font-size: 17px; font-weight: 590; letter-spacing: -0.2px; color: var(--text-1); }
+.drawer-sub-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.drawer-sub { font-size: 11px; color: var(--text-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 关闭按钮: 44px 触控热区, 视觉图标居中 */
+.drawer-close {
+    flex-shrink: 0; width: 44px; height: 44px; margin: -10px -12px 0 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 22px; line-height: 1; color: var(--text-3);
+    background: none; border: none; border-radius: 8px; cursor: pointer;
+    transition: color .15s, background-color .15s;
+}
+.drawer-close:hover { color: var(--text-1); background: rgba(255, 255, 255, 0.06); }
+:root[data-theme="light"] .drawer-close:hover { background: rgba(11, 12, 13, 0.06); }
+.drawer-close:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: -2px; }
+
+.drawer-meta { padding: 12px 20px 14px; border-bottom: 1px solid var(--border-subtle); }
+.meta-label { font-size: 10px; font-weight: 590; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-4); margin: 9px 0 5px; }
+.meta-label:first-child { margin-top: 0; }
+/* 触发词: 小胶囊标签流式排列 */
+.chip-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip {
+    font-size: 10.5px; line-height: 1; padding: 4px 9px; border-radius: 8px;
+    color: var(--text-2); background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-subtle);
+}
+:root[data-theme="light"] .chip { background: var(--surface); }
+/* 允许工具: mono 列表 + ✓ 前缀 */
+.tool-list { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-2); }
+.tool-list .tool-item::before { content: "✓ "; color: var(--green); }
+
+/* playbook 正文容器: 复用 .prose 排版, 去掉内嵌卡片外观 */
+.drawer-body { background: transparent; border: none; border-radius: 0; padding: 16px 20px 28px; }
+
+/* loading 骨架: 两行灰色圆角条 */
+.drawer-skel { display: flex; flex-direction: column; gap: 12px; padding-top: 4px; }
+.skel-bar { height: 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.06); animation: pulse 1.4s ease-in-out infinite; }
+.skel-bar:nth-child(1) { width: 62%; }
+.skel-bar:nth-child(2) { width: 88%; }
+:root[data-theme="light"] .skel-bar { background: rgba(11, 12, 13, 0.08); }
+
+/* 失败态: 错误文案 + 重试 */
+.drawer-error { display: flex; align-items: center; gap: 12px; font-size: 12.5px; color: var(--red); }
+.drawer-error .btn-ghost { padding: 5px 14px; font-size: 12px; }
 
 /* ---------- AIOps grid ---------- */
 .aiops-grid { display: grid; grid-template-columns: 1fr; gap: 18px; }
@@ -552,4 +638,9 @@ body {
     }
     .dag-node, .trace-tool, .trace-detail { animation: none; }
     .trace-svg path { transition: none !important; stroke-dashoffset: 0 !important; }
+    /* 抽屉禁位移只留 fade; 卡片 hover 上浮一并去掉 */
+    .skill-drawer { transform: none; opacity: 0; transition: opacity .18s ease-out, visibility 0s .18s linear; }
+    .skill-drawer.open { opacity: 1; transition: opacity .18s ease-out; }
+    .drawer-overlay { transition: opacity .18s ease-out; }
+    .skill-card:hover { transform: none; }
 }
