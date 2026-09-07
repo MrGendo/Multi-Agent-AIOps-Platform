@@ -609,6 +609,9 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
             planEl.appendChild(div);
         });
         statusEl.textContent = `已生成 ${d.plan.length} 步计划`;
+        // 横向轨道: 新计划时同步清空执行轨道
+        const hint = document.getElementById("aiops-plan-hint");
+        if (hint) hint.textContent = `计划 ${d.plan.length} 步 · 执行进度见下方轨道`;
     } else if (t === "step_start") {
         // 创建 "executing" 卡片, 后续 step_token 往里追加流式内容
         let div = stepsEl.querySelector(`[data-step-iter="${d.iteration}"]`);
@@ -621,7 +624,7 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
                 <div class="step-stream"></div>`;
             stepsEl.appendChild(div);
         }
-        stepsEl.scrollTop = stepsEl.scrollHeight;
+        stepsEl.scrollLeft = stepsEl.scrollWidth;  // 横向轨道: 滚到最新步骤
         statusEl.textContent = `正在执行第 ${d.iteration} 步…`;
         aiopsTrace.ensureStep(d.iteration, d.step);
         // 监控面板: 更新当前步骤 + 清空实时输出 (每步重置)
@@ -650,7 +653,7 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
                 stream.textContent = "..." + stream.textContent.slice(-1800);
             }
         }
-        stepsEl.scrollTop = stepsEl.scrollHeight;
+        stepsEl.scrollLeft = stepsEl.scrollWidth;  // 横向轨道: 跟随最新
         // 监控面板: 大屏实时输出 + token 累计 (按字符数粗估)
         const monStream = document.getElementById("mon-stream");
         if (monStream) {
@@ -728,7 +731,7 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
         div.innerHTML = `<div class="step-title">✓ 步骤 ${escapeHtml(String(iter))}</div>
             <div class="step-desc">${escapeHtml(d.step || "")}</div>
             <div class="step-preview">${escapeHtml((d.result_preview || "").slice(0, 200))}</div>`;
-        stepsEl.scrollTop = stepsEl.scrollHeight;
+        stepsEl.scrollLeft = stepsEl.scrollWidth;  // 横向轨道: 跟随最新
         statusEl.textContent = `已完成 ${d.iteration} 步`;
         {
             const s = aiopsTrace.ensureStep(d.iteration, d.step);
@@ -739,7 +742,7 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
         div.className = "step-item replan-note";
         div.innerHTML = `<div>Replanner 调整: 剩余 ${(d.plan || []).length} 步</div>`;
         stepsEl.appendChild(div);
-        stepsEl.scrollTop = stepsEl.scrollHeight;
+        stepsEl.scrollLeft = stepsEl.scrollWidth;  // 横向轨道: 跟随最新
     } else if (t === "report") {
         showAiopsReport();
         reportEl.innerHTML = renderMarkdown(d.report || "");
