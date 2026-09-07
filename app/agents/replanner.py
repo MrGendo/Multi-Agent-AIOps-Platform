@@ -262,7 +262,9 @@ async def replan_node(state: PlanExecuteState) -> PlanExecuteState:
     )
 
     replanner_model = harness.replanner_model()
-    llm = get_chat_llm(model=replanner_model, temperature=0, timeout=30, max_retries=1)
+    # timeout 120s + retries 3: GLM Coding Plan 结构化输出 (thinking+json) 在慢窗口
+    # 轻松超 30s, 之前 timeout=30 直接把整条链打进 _force_summary 兜底 (2026-09-04 事故)
+    llm = get_chat_llm(model=replanner_model, temperature=0, timeout=120, max_retries=3)
 
     plan_text = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(plan)) if plan else "(无)"
     past_text = _format_past_steps(past_steps)
@@ -423,9 +425,15 @@ def _force_summary(
     past_steps: list[tuple[str, str]],
     current_time: str,
 ) -> str:
-    """硬兜底: 当 LLM 决策失败或超步数, 用模板生成简单报告."""
+    """硬兜底: 当 LLM 决策失败或超步数, 用模板生成简单报告.
+
+    2026-09-04 修订: 不再拍平换行 (表格挤成一行) / 不再写死空话结论 —
+    每步证据保留原始换行截 1200 字, 结论由规则从证据里抽工具名+关键指标.
+    """
     if not past_steps:
         return f"# 故障诊断报告\n**生成时间**: {current_time}\n\n## 问题\n{user_input}\n\n## 结论\n诊断流程异常终止, 未能收集到有效信息, 请人工介入。"
+
+    import re
 
     sections = [
         "# 故障诊断报告\n",
@@ -434,7 +442,27 @@ def _force_summary(
         "## 收集到的信息\n",
     ]
     for i, (step, result) in enumerate(past_steps, 1):
-        snippet = result[:300].replace("\n", " ")
+        snippet = result if len(result) <= 1200 else result[:1200] + "…(截断)"
         sections.append(f"**{i}. {step}**\n{snippet}\n")
-    sections.append("## 结论\n基于以上信息, 建议进一步人工确认根因和处置方案。")
+
+    # ---- 规则化结论: 从证据里抽工具名 + 关键指标, 不写空话 ----
+    all_text = "\n".join(f"{s}\n{r}" for s, r in past_steps)
+    tool_re = re.compile(
+        r"\b(get_[a-z_]+|list_[a-z_]+|search_[a-z_]+|query_[a-z_]+"
+        r"|ping_host|http_check|dns_lookup|check_port)\b"
+    )
+    tools = list(dict.fromkeys(tool_re.findall(all_text)))
+    metric_re = re.compile(r"[~\d.]+\s*(?:%|GB|MB|KB|ms|次|分钟|核)")
+    metrics = list(dict.fromkeys(m.strip() for m in metric_re.findall(all_text)))[:6]
+
+    concl = [
+        "## 结论\n",
+        "(降级模式: LLM 决策超时, 以下为规则汇总, 完整证据见上方各步骤原文)\n",
+        f"- 诊断流程: 共执行 {len(past_steps)} 步",
+    ]
+    if tools:
+        concl.append(f"- 调用工具: {', '.join(tools[:8])}")
+    if metrics:
+        concl.append(f"- 关键指标: {', '.join(metrics)}")
+    sections.append("\n".join(concl))
     return "\n".join(sections)

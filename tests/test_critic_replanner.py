@@ -123,7 +123,19 @@ def test_force_summary_with_steps():
     out = _force_summary("input", steps, "2026-08-27")
     assert "查 CPU" in out and "查日志" in out
     assert "98%" in out
-    assert "进一步人工确认" in out
+    # v2 (2026-09-04): 结论是规则汇总 (降级标注 + 步数), 不再是空话
+    assert "降级模式" in out
+    assert "共执行 2 步" in out
+
+
+def test_force_summary_keeps_newlines_for_tables():
+    """兜底报告不许拍平换行 — 表格证据必须保留多行结构 (2026-09-04 真实事故)."""
+    table_result = "| 维度 | 值 |\n|---|---|\n| CPU | 98% |"
+    out = _force_summary("input", [("采集", table_result)], "2026-08-27")
+    assert "| 维度 | 值 |" in out          # 表头行独立成行
+    assert "|---|---|" in out              # 分隔行独立成行
+    assert "| CPU | 98% |" in out          # 数据行独立成行
+    assert "CPU | 98% |\n" in out          # 换行保留, 未被拍平
 
 
 # ============================================================

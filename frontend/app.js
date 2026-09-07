@@ -1289,9 +1289,62 @@ function scanMarkdownTables(text) {
 
 // 极简 Markdown -> HTML (够用即可, 不引第三方库)
 // v3: 表格抽为独立函数 + 容错解析 (缺首尾管道 / 列对齐)
+// v4: 内联表格救援 — LLM 偶尔把整张表塞进一行文字里, 先拆行再交给常规扫描
+function rescueInlineTables(text) {
+    const lines = text.split("\n");
+    const out = [];
+    let inFence = false;
+    for (const line of lines) {
+        if (/^\s*```/.test(line)) { inFence = !inFence; out.push(line); continue; }
+        if (inFence) { out.push(line); continue; }
+        // 一行内同时出现: 前置文字 + ≥3 个管道 + 完整分隔行段(|---|---| 整体)
+        // 注意: 分隔段必须"整体"匹配 — 单个 | |---| 片段 (数据单元格后紧跟分隔) 会误切表头
+        const m = line.match(/(\|(?:\s*:?-+:?\s*\|){2,})((?:\s*\|(?!.*(?:\s*:?-+:?\s*\|){2,}).*)?)$/);
+        const pipeCount = (line.match(/\|/g) || []).length;
+        if (m && m.index > 0 && pipeCount >= 3) {
+            // 从第一个管道切出正文前缀 (前置文字不含管道)
+            const firstPipe = line.indexOf("|");
+            if (firstPipe > 0) {
+                const prose = line.slice(0, firstPipe).trim();
+                // 确定性拆行 (正则多层 replace 会错位, 改为字符串扫描):
+                // 1) 找完整分隔段 |---|---| (整段只含 | :- )
+                const tableStr = line.slice(firstPipe);
+                // 分隔段用非贪婪 + 左边界断言, 避免吞掉表头行尾部的数据单元格管道
+                const sepMatch = tableStr.match(/(?:\|(?:\s*:?-+:?\s*\|){2,}?)(?=\s*(\||$))/);
+                if (!sepMatch) { out.push(line); continue; }
+                const sep = sepMatch[0];
+                // sepStart 相对整行: firstPipe 偏移 + 表内索引
+                const sepStart = firstPipe + sepMatch.index;
+                const before = line.slice(firstPipe, sepStart).trim();      // 表头行
+                const after = line.slice(sepStart + sep.length);            // 数据行串
+                const colPipes = before.split("|").length - 1;              // 表头管道数
+                // 2) 数据行串按管道数等长切行
+                const dataLines = [];
+                let cur = "", pipes = 0;
+                for (const ch of after) {
+                    cur += ch;
+                    if (ch === "|") {
+                        pipes += 1;
+                        if (pipes === colPipes) { dataLines.push(cur.trim()); cur = ""; pipes = 0; }
+                    }
+                }
+                if (cur.trim()) dataLines.push(cur.trim());
+                out.push(prose);
+                if (before) out.push(before);
+                out.push(sep);
+                out.push(...dataLines.filter((l) => l.replace(/[\s|]/g, "") !== ""));
+                continue;
+            }
+        }
+        out.push(line);
+    }
+    return out.join("\n");
+}
+
 function renderMarkdown(md) {
     if (!md) return "";
     let s = String(md).replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+    s = rescueInlineTables(s);
     let h = escapeHtml(s);
 
     // 表格: 在已转义文本上做结构化转换, 之后的粗体/行内码替换会继续作用在生成的 html 上

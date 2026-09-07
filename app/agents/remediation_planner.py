@@ -26,7 +26,8 @@ async def remediation_planner_node(state: PlanExecuteState) -> PlanExecuteState:
     harness = get_agent_harness()
     # 使用 planner 模型即可，它负责规划
     model = harness.planner_model()
-    llm = get_chat_llm(model=model, temperature=0, timeout=30)
+    # timeout 120s: 结构化输出慢窗口下 30s 必超时 (2026-09-04 事故, 同 replanner)
+    llm = get_chat_llm(model=model, temperature=0, timeout=120, max_retries=3)
     
     system_prompt = """你是一个专业的运维自愈安全评审系统。
 基于用户的诊断报告，判断是否需要并可以执行自动化自愈操作（如重启服务、清理磁盘等）。
