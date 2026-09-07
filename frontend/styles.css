@@ -117,7 +117,7 @@ body {
 .main { max-width: 1280px; margin: 0 auto; padding: 20px 24px 32px; }
 .footer { text-align: center; color: var(--text-4); font-size: 11px; padding: 20px 0 28px; }
 
-.panel-title { font-size: 12.5px; font-weight: 590; letter-spacing: -0.1px; color: var(--text-2); margin: 0 0 8px; }
+.panel-title { font-size: 13px; font-weight: 590; letter-spacing: -0.12px; color: var(--text-1); margin: 0 0 8px; }
 .panel-title.with-rule { margin-top: 18px; }
 .t-dim { color: var(--text-4); font-weight: 400; }
 .placeholder { color: var(--text-4); font-style: italic; }
@@ -245,25 +245,34 @@ body {
 .drawer-error .btn-ghost { padding: 5px 14px; font-size: 12px; }
 
 /* ---------- AIOps grid ---------- */
-/* 全横排布局 (2026-09-07 用户反馈: 告警输入/执行步骤也横放, 消灭左列空白):
-   行1 输入+按钮 → 行2 监控指标条 → 行3 步骤轨道+实时流 → 行4 DAG+报告, 全部整行 */
-.aiops-grid { display: grid; grid-template-columns: 1fr; gap: 16px; min-width: 0; }
-.aiops-inputrow { display: flex; gap: 10px; align-items: stretch; min-width: 0; }
-.aiops-inputrow #aiops-query { flex: 1; min-width: 0; }
-.btn-row-inline { display: flex; flex-direction: column; gap: 8px; justify-content: stretch; }
-.btn-row-inline .btn-primary, .btn-row-inline .btn-ghost { white-space: nowrap; }
+/* 全横排布局: 行1 输入+按钮 → 行2 监控条 → 行3 步骤轨道 → 行4 DAG+报告
+   节奏: 组间 24px / 组内 12px, 区块标题带底部分区线 (2026-09-07 排版优化) */
+.aiops-grid { display: grid; grid-template-columns: 1fr; gap: 12px; min-width: 0; }
+.aiops-results { margin-top: 12px; }
+.aiops-inputrow { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: stretch; min-width: 0; }
+.aiops-inputrow #aiops-query { min-width: 0; min-height: 46px; }
+.btn-row-inline { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+.btn-row-inline .btn-primary { padding: 10px 22px; font-size: 13.5px; white-space: nowrap; }
+.btn-row-inline .btn-ghost { white-space: nowrap; }
+.right-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle); }
 .aiops-stepsrow { display: grid; grid-template-columns: 1fr; gap: 12px; min-width: 0; }
 @media (min-width: 1100px) {
     .aiops-stepsrow { grid-template-columns: minmax(0, 1fr) 460px; align-items: start; }
 }
-.steps-lane { min-width: 0; }
-/* 计划/步骤: 横向卡片轨道, 溢出横向滚动 */
-.plan-lane, .steps-lane-cards {
-    display: flex; gap: 8px; overflow-x: auto; min-width: 0;
-    padding: 4px 2px 8px; scroll-behavior: smooth;
-}
+.steps-lane { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+/* Executor 实时输出独占右列整高 (用户: 输出内容多, 右边全给它; 工具流水挪到步骤下方左列) */
+.stream-full { display: flex; flex-direction: column; min-height: 320px; }
+.stream-full .mono-stream { flex: 1; min-height: 0; max-height: none; }
+/* 计划行: 轻量 chips (无面板底), 悬浮在步骤轨道上方 */
+.plan-lane { min-height: 0; padding: 2px 0; background: transparent; border: none; }
 .plan-lane .placeholder, .steps-lane-cards .placeholder { white-space: nowrap; }
-.steps-lane-cards .step-item { flex: 0 0 240px; min-width: 0; }
+.plan-lane .plan-row {
+    flex: 0 0 auto; max-width: 320px; flex-direction: column; gap: 3px; margin: 0;
+    padding: 6px 10px; background: rgba(94, 106, 210, 0.08);
+    border: 1px solid rgba(113, 112, 255, 0.25); border-radius: 6px;
+}
+.steps-lane-cards { background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 10px; min-height: 96px; }
+.steps-lane-cards .step-item { flex: 0 0 230px; min-width: 0; }
 .aiops-results { display: flex; flex-direction: column; min-width: 0; }
 .field-label { display: block; font-size: 12.5px; font-weight: 510; color: var(--text-2); margin-bottom: 7px; }
 #aiops-query {
@@ -335,13 +344,15 @@ body {
 .right-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .status-chip { font-size: 11px; color: var(--text-4); padding: 2px 8px; border-radius: 9999px; border: 1px solid var(--border-subtle); }
 .monitor { display: flex; flex-direction: column; gap: 12px; }
-.metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--border-subtle); border-radius: 10px; background: rgba(255, 255, 255, 0.02); overflow: hidden; }
 @media (max-width: 800px) { .metric-grid { grid-template-columns: repeat(2, 1fr); } }
 .metric {
-    background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle);
-    border-radius: 10px; padding: 10px 12px;
+    background: transparent; border: none; border-right: 1px solid var(--border-subtle);
+    border-radius: 0; padding: 12px 16px;
 }
-.metric-label { font-size: 10.5px; font-weight: 510; letter-spacing: 0.4px; color: var(--text-4); text-transform: uppercase; }
+.metric:last-child { border-right: none; }
+@media (max-width: 800px) { .metric:nth-child(2n) { border-right: none; } }
+.metric-label { font-size: 10px; font-weight: 510; letter-spacing: 0.5px; color: var(--text-4); text-transform: uppercase; }
 .metric-value { font-family: var(--mono); font-size: 20px; font-weight: 500; color: var(--text-1); margin-top: 3px; }
 .metric-value.accent { color: var(--accent-hover); }
 .metric-sub { font-size: 11px; color: var(--text-4); margin-top: 1px; }
@@ -568,7 +579,7 @@ body {
     min-width: 0; overflow-x: auto;  /* 画布 JS 定宽, 超宽横向滚动, 不撑破网格 (勿加 max-width: 宽屏全行模式会被列宽截断) */
 }
 :root[data-theme="light"] .trace-wrap { background: #fff; }
-.trace-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.trace-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle); }
 
 /* 画布: JS 计算好宽高, 节点绝对定位, 连线垫在节点下方 */
 .trace-canvas { position: relative; }

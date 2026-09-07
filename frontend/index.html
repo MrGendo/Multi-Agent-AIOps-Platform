@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css?v=20260907h">
+    <link rel="stylesheet" href="/styles.css?v=20260907j">
 </head>
 <body>
 
@@ -69,7 +69,7 @@
         <div class="aiops-grid">
             <!-- 横排 1: 告警输入 + 开始/停止 (整行) -->
             <div class="aiops-inputrow">
-                <textarea id="aiops-query" rows="2" spellcheck="false"
+                <textarea id="aiops-query" rows="1" spellcheck="false"
                     placeholder="例如: 我的电脑内存占用居高不下, 系统开始卡顿…">我的电脑内存占用居高不下, 系统明显卡顿, 浏览器和开发工具响应变慢, 已持续 12 分钟</textarea>
                 <div class="btn-row btn-row-inline">
                     <button id="aiops-start" class="btn-primary">开始诊断</button>
@@ -107,7 +107,7 @@
                 </div>
             </div>
 
-            <!-- 横排 3: 执行步骤横向轨道 (计划态→执行中→完成, 整行) + 右侧流/工具小面板 -->
+            <!-- 横排 3: 左=执行步骤轨道 + 工具调用流水(下方), 右=Executor 实时输出整列 -->
             <div class="aiops-stepsrow">
                 <div class="steps-lane">
                     <div class="right-head">
@@ -122,19 +122,18 @@
                     <div id="aiops-steps" class="steps-lane-cards scroll-pane-x">
                         <span class="placeholder">等待开始…</span>
                     </div>
-                </div>
-                <div class="stream-grid">
-                    <div class="panel stream-panel">
-                        <div class="panel-head">Executor 实时输出 <span id="mon-stream-hint" class="t-dim">等待中</span></div>
-                        <div id="mon-stream" class="mono-stream scroll-pane">
-                            <span class="placeholder italic">诊断开始后, 模型生成的文本会实时显示在此…</span>
-                        </div>
-                    </div>
+                    <!-- 工具调用流水: 跟在步骤轨道下面 (左列) -->
                     <div class="panel tools-panel">
                         <div class="panel-head">工具调用流水</div>
                         <div id="mon-tool-feed" class="tool-feed scroll-pane">
                             <span class="placeholder italic" style="padding:0 8px">暂无工具调用</span>
                         </div>
+                    </div>
+                </div>
+                <div class="panel stream-panel stream-full">
+                    <div class="panel-head">Executor 实时输出 <span id="mon-stream-hint" class="t-dim">等待中</span></div>
+                    <div id="mon-stream" class="mono-stream scroll-pane">
+                        <span class="placeholder italic">诊断开始后, 模型生成的文本会实时显示在此…</span>
                     </div>
                 </div>
             </div>
@@ -228,6 +227,6 @@
     <div id="drawer-body" class="drawer-body prose scroll-pane"></div>
 </aside>
 
-<script src="/app.js?v=20260907h"></script>
+<script src="/app.js?v=20260907j"></script>
 </body>
 </html>
