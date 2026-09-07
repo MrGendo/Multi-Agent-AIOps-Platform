@@ -87,7 +87,12 @@ async function loadSkills() {
         }
 
         listEl.innerHTML = "";
-        skills.forEach((s) => {
+        // 兜底专家置顶, 其余按注册序稳定排列 (registry 是字典序, generic_oncall 会沉到中间)
+        const ordered = [...skills].sort((a, b) => {
+            const ga = a.name === "generic_oncall" ? 1 : 0, gb = b.name === "generic_oncall" ? 1 : 0;
+            return gb - ga;
+        });
+        ordered.forEach((s) => {
             const card = document.createElement("div");
             card.className = "skill-card";
             card.dataset.skillName = s.name;

@@ -141,6 +141,7 @@ body {
     border: 1px solid var(--border-subtle);
     border-radius: 8px; padding: 8px 10px; cursor: pointer;
     transition: transform .15s, background .15s, border-color .15s;
+    min-width: 0; overflow: hidden; /* 卡片自身锁宽: 截断交给内部 .truncate, 不再撑破网格列 */
 }
 .skill-card:hover { background: rgba(255, 255, 255, 0.05); transform: translateY(-1px); }
 .skill-card:focus-visible { outline: none; border-color: var(--accent-bright); }
@@ -244,10 +245,12 @@ body {
 .drawer-error .btn-ghost { padding: 5px 14px; font-size: 12px; }
 
 /* ---------- AIOps grid ---------- */
+/* 整页流式布局: 不锁视口高度, DAG 与报告随内容撑开, 页面整体下滚 (2026-09-07 用户反馈) */
 .aiops-grid { display: grid; grid-template-columns: 1fr; gap: 18px; }
 @media (min-width: 1100px) {
-    .aiops-grid { grid-template-columns: 340px 1fr; height: calc(100vh - 300px); min-height: 560px; }
-    .aiops-left, .aiops-right { display: flex; flex-direction: column; min-height: 0; }
+    .aiops-grid { grid-template-columns: 340px 1fr; align-items: start; }
+    .aiops-left { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+    .aiops-right { display: flex; flex-direction: column; }
 }
 .field-label { display: block; font-size: 12.5px; font-weight: 510; color: var(--text-2); margin-bottom: 7px; }
 #aiops-query {
@@ -318,7 +321,7 @@ body {
 /* ---------- Right: monitor & report ---------- */
 .right-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .status-chip { font-size: 11px; color: var(--text-4); padding: 2px 8px; border-radius: 9999px; border: 1px solid var(--border-subtle); }
-.monitor { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 12px; }
+.monitor { display: flex; flex-direction: column; gap: 12px; }
 .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 @media (max-width: 800px) { .metric-grid { grid-template-columns: repeat(2, 1fr); } }
 .metric {
@@ -334,8 +337,9 @@ body {
     border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0 4px; text-transform: none;
 }
 
-.stream-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 12px; flex: 1; min-height: 0; }
+.stream-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 12px; }
 @media (max-width: 800px) { .stream-grid { grid-template-columns: 1fr; } }
+.mon-stream { max-height: 300px; }
 .panel {
     display: flex; flex-direction: column; min-height: 0;
     background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: 10px;
@@ -366,6 +370,8 @@ body {
     flex: 1; min-height: 0; background: rgba(255, 255, 255, 0.02);
     border: 1px solid var(--border-subtle); border-radius: 10px; padding: 18px 20px;
 }
+/* 诊断报告整页展示: 不再套内滚动小框, 高度随内容, 页面整体下滚 */
+.report-full { flex: none; max-height: none; overflow: visible; }
 .prose h1 { font-size: 19px; font-weight: 590; letter-spacing: -0.24px; color: var(--text-1); margin: 0.9em 0 0.5em; }
 .prose h2 { font-size: 16px; font-weight: 590; color: var(--text-1); margin: 1em 0 0.45em; }
 .prose h3 { font-size: 13.5px; font-weight: 590; color: var(--text-2); margin: 0.8em 0 0.35em; }
@@ -546,7 +552,6 @@ body {
     flex: 1; min-height: 0; margin-bottom: 12px;
     background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle);
     border-radius: 10px; padding: 14px 16px;
-    max-height: 380px; overflow: auto;
 }
 :root[data-theme="light"] .trace-wrap { background: #fff; }
 .trace-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }

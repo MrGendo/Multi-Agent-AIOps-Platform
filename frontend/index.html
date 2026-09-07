@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css?v=20260907a">
+    <link rel="stylesheet" href="/styles.css?v=20260907b">
 </head>
 <body>
 
@@ -136,7 +136,7 @@
                 </div>
 
                 <!-- 执行流程图: 诊断结束后与报告并列展示, 步骤轨道+工具节点可点击 -->
-                <div id="aiops-trace" class="trace-wrap scroll-pane hidden">
+                <div id="aiops-trace" class="trace-wrap hidden">
                     <div class="trace-head">
                         <span class="panel-title">Agent 执行流程</span>
                         <button id="trace-copy" class="link-btn hidden">复制 JSON</button>
@@ -144,7 +144,7 @@
                     <div id="trace-timeline" class="trace-timeline"></div>
                 </div>
 
-                <div id="aiops-report" class="prose scroll-pane hidden"></div>
+                <div id="aiops-report" class="prose report-full hidden"></div>
             </div>
         </div>
     </section>
@@ -223,6 +223,6 @@
     <div id="drawer-body" class="drawer-body prose scroll-pane"></div>
 </aside>
 
-<script src="/app.js?v=20260907a"></script>
+<script src="/app.js?v=20260907b"></script>
 </body>
 </html>
