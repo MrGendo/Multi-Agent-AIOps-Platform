@@ -10,7 +10,37 @@
 ![Milvus](https://img.shields.io/badge/Milvus-VectorDB-purple)
 ![FastMCP](https://img.shields.io/badge/FastMCP-Tools-black)
 ![CI](https://github.com/MrGendo/Multi-Agent-AIOps-Platform/actions/workflows/ci.yml/badge.svg)
-![Tests](https://img.shields.io/badge/tests-159%20offline-brightgreen)
+![Tests](https://img.shields.io/badge/tests-210%20offline-brightgreen)
+
+---
+
+## 界面预览：多专家并行会诊（真实运行截图）
+
+以下截图来自真实运行（真实 LLM + 真实工具探测，非 mock）。输入跨域故障：
+
+```
+线上订单服务大面积超时，请网络专家和数据库专家同时排查：网络连通性和MySQL慢查询都要查
+```
+
+Orchestrator 判定故障跨越网络/数据库两个域，通过 LangGraph `Send` API 并行拉起 **network_diagnosis + database_diagnosis** 两个专家子图（日志实测两分支拉起间隔仅 10ms），各自执行 Plan-Execute-Replan 循环后由 Merger 融合（Debate 模式）出统一报告。
+
+**1. 执行中 — 双专家并行探测**
+
+步骤卡横向轨道（每步一张卡，自动跟随最新步骤）+ 工具调用流水 + Executor 实时输出独占右侧整列：
+
+![多专家并行执行中](docs/images/fanout-running.png)
+
+**2. 完成态 — Agent 执行流程 DAG + Merger 融合报告（暗色主题）**
+
+执行链路以真 DAG 呈现：开始 → 选派专家(Orchestrator) → Planner → 各步骤及其工具子列 → 报告；工具芯片（✓/✗ + 耗时）可点击展开查看每一步的真实输入/输出。本次双专家真实探测结论：3306 端口 Connection refused（RST 而非超时 = 无监听）、订单服务 8080 不可达、公网链路正常，融合判定「MySQL 实例宕机导致超时，网络侧无问题」：
+
+![融合报告暗色](docs/images/fanout-final-dark.png)
+
+**3. 亮色主题**
+
+同一界面一键切换亮/暗主题（localStorage 持久化），全部颜色走 CSS 设计令牌：
+
+![亮色主题](docs/images/fanout-final-light.png)
 
 ---
 
@@ -31,9 +61,11 @@
 6. **防死循环重规划 (Replanner)**
    严格监控历史执行路径，内置了代码级和 Prompt 级的双重“复读机拦截”逻辑。如果大模型企图再次执行刚才已做过的完全相同的步骤，平台将强行阻断并驱动其立刻输出结论，杜绝 Token 空耗。
 7. **全链路 SSE 实时可视化反馈**
-   前端通过 Server-Sent Events (SSE) 实时渲染系统的工作进度：从并行专家调度、每一小步的思考规划、工具调用、沙箱状态到最终报告聚合，全部以结构化的打字机流式输出，掌控感极强。
+   前端通过 Server-Sent Events (SSE) 实时渲染系统的工作进度：从并行专家调度、每一小步的思考规划、工具调用、沙箱状态到最终报告聚合，全部以结构化的打字机流式输出，掌控感极强。执行链路同步绘制成**Agent 执行流程 DAG**（开始 → 选派专家 → Planner → 各步骤与工具子列 → 报告），工具芯片可点击展开查看每一步的真实输入/输出。
 8. **自愈决策与人机共驾 (HITL)**
    完成全域诊断并输出根因后，系统会拟定具体的自愈变更步骤（如自动杀进程、扩容），在正式执行前引入 Human-In-The-Loop（人机回路）触发审批停顿，确认后通过 Action Executor 收尾。
+9. **领域技能库 + Playbook 浏览**
+   内置主机/网络/容器/半导体/数据库/K8s 六个领域专家技能与强制兜底专家，技能卡点击即可展开完整 Playbook（Markdown 渲染）。路由采用 LLM 菜单选择而非全技能分发，长尾故障交给知识库检索 + 兜底专家。
 
 ---
 
@@ -154,6 +186,7 @@ flowchart TD
 ## 功能特性
 
 - **多专家并行协作 (Orchestrator-Experts)**：从单体模型演进为集群调度，支持多维故障（如 CPU与网络同时异常）的并行诊断，大幅缩短时延。
+- **领域技能库 (Skill Registry)**：7 个领域专家技能（主机/网络/容器/半导体/数据库/K8s + 强制兜底），LLM 菜单式路由精准选派；技能卡可在前端展开完整 Playbook。
 - **动态工具沙箱编程**：突破静态 API 限制，支持 LLM 在本地安全的沙箱内实时编写、执行 Python 脚本来完成深度探测。
 - **Critic 微观幻觉防御**：自带代码执行审计与数据捏造检测机制，保障排障推理链路的绝对真实。
 - **零信任机密注入**：引入 `SecretVault`，大模型编写排障脚本时全程通过环境变量占位符获取机密，密码永不进入 LLM 上下文。
@@ -163,7 +196,7 @@ flowchart TD
 - **实时 MCP 工具服务**：接入系统信息、网络诊断、Windows 日志、Docker、半导体 SECS/GEM 仿真探针等工具服务。
 - **真实 Token 监控与 SSE 流式反馈**：前端实时通过打字机效果呈现系统并行调度、专家思考、沙箱执行等极具科技感的中间态。
 - **告警去重与全链路持久化**：Alertmanager webhook 按 fingerprint 去重（15 分钟窗口防告警风暴重复烧 token），告警、诊断 run、工具调用明细、HITL 审计全量落库（SQLite 开发 / PostgreSQL 生产），持久化故障自动降级绝不阻塞诊断。
-- **工程化质量门禁**：159 个离线测试（单元/集成/协议/E2E 四层，无需 LLM 与外部服务），GitHub Actions CI（py3.11/3.12 矩阵 + ruff + Alembic 迁移往返验证），schema 漂移检测防「只改模型忘写迁移」。
+- **工程化质量门禁**：210 个离线测试（单元/集成/协议/E2E 四层，无需 LLM 与外部服务），GitHub Actions CI（py3.11/3.12 矩阵 + ruff + Alembic 迁移往返验证），schema 漂移检测防「只改模型忘写迁移」。
 
 ---
 
@@ -173,13 +206,13 @@ flowchart TD
 |---|---|
 | Web 服务与 API 层 | **FastAPI** + Uvicorn (全面拥抱 Async/Await 异步并发体系) |
 | Agent 编排引擎 | **LangGraph** (实现细粒度状态机、Send API 并发、子图逻辑) |
-| 大模型基座 | **DashScope / Qwen** (默认)，基于 OpenAI Compatible API 设计，无缝平替 DeepSeek |
+| 大模型基座 | **多供应商前缀路由**：`glm*` → 智谱 GLM（Coding Plan Anthropic 端点），`deepseek*` → DeepSeek，其余 → DashScope/Qwen；基于 OpenAI Compatible / Anthropic 协议设计，换供应商只改模型名 |
 | Embedding 模型 | DashScope `text-embedding-v4` (搭配 GTE-Rerank 实现检索) |
 | 向量数据库引擎 | **Milvus** (独立部署，负责核心经验库与 SOP 的召回引擎) |
 | 会话记忆系统 | **Redis** (缓存长文本聊天轮次记录) |
 | 外部工具与探针 | **MCP / FastMCP** (大模型上下文协议，实现工具调用的去中心化解耦) |
 | 联网搜索组件 | **open-webSearch** (利用本地 Docker 部署搜索代理服务) |
-| 前端工程 | HTML + **TailwindCSS** + Vanilla JS (追求极速启动与免配置) |
+| 前端工程 | 单文件 HTML + Vanilla JS + **CSS 变量设计令牌**（Linear 风格组件，内置亮/暗双主题切换，无构建步骤） |
 | 运行环境与依赖 | Python 3.11+ / Docker Compose / Windows PowerShell |
 
 ---
@@ -259,8 +292,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\run.ps1
 multi_agent_github/
 ├── app/                    # FastAPI / Agent / RAG / Skill 核心代码
 ├── mcp_servers/            # MCP 工具服务
-├── frontend/               # 前端页面
+├── frontend/               # 前端页面 (index.html + app.js + styles.css)
 ├── docs/sop/               # 内置 OnCall SOP
+├── docs/images/            # README 界面截图 (真实运行抓取)
 ├── data/kb_corpus/         # RAG 开源语料
 ├── scripts/                # 知识库和告警模拟脚本
 ├── docker-compose.yml      # Milvus + etcd + MinIO + Attu + Redis
@@ -293,6 +327,8 @@ multi_agent_github/
 | Webhook (自动处理告警) | POST | `/api/v1/webhook/alertmanager` |
 | RAG 会话 | POST | `/api/v1/chat/stream` |
 | 知识库管理 | POST / DELETE | `/api/v1/documents/upload` 及 `{source}` |
+| 技能列表 / Playbook 详情 | GET | `/api/v1/skills` 与 `/api/v1/skills/{name}` |
+| 诊断 run / 告警查询 | GET | `/api/v1/runs`、`/api/v1/runs/{id}`、`/api/v1/alerts`、`/api/v1/alerts/{fingerprint}` |
 
 *（注：涉及知识库与系统层面的写入调用必须在 HTTP Header 中携带 `X-KB-Admin-Token`）*
 
