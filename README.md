@@ -30,11 +30,11 @@ Orchestrator 判定故障跨越网络/数据库两个域，通过 LangGraph `Sen
 
 ![多专家并行执行中](docs/images/fanout-running.png)
 
-**2. 完成态 — Agent 执行流程 DAG + Merger 融合报告（暗色主题）**
+**2. 完成态 — Agent 执行流程 DAG + 双专家报告 + HITL 自愈审批（暗色主题，全页截图）**
 
-执行链路以真 DAG 呈现：开始 → 选派专家(Orchestrator) → Planner → 各步骤及其工具子列 → 报告；工具芯片（✓/✗ + 耗时）可点击展开查看每一步的真实输入/输出。本次双专家真实探测结论：3306 端口 Connection refused（RST 而非超时 = 无监听）、订单服务 8080 不可达、公网链路正常，融合判定「MySQL 实例宕机导致超时，网络侧无问题」：
+执行链路以真 DAG 呈现：开始 → 选派专家(Orchestrator) → Planner → 各步骤及其工具子列（✓/✗ + 耗时，可点击展开真实输入/输出）→ 报告。本次双专家真实探测结论：3306 端口 Connection refused（RST 而非超时 = 无监听）、订单服务 8080 不可达、公网链路正常，根因判定「MySQL 实例宕机导致超时，网络侧无问题」。报告区含两份专家原始报告与处置建议（紧急止损 + 长期优化）；Merger 融合超时时按无人值守纪律降级为并排展示原始报告，末尾 HITL 卡给出提议的自愈方案，等用户「授权并执行修复」或「拒绝执行」：
 
-![融合报告暗色](docs/images/fanout-final-dark.png)
+![完成态全页](docs/images/fanout-fullpage.png)
 
 **3. 亮色主题**
 
