@@ -248,6 +248,14 @@ function clearSkillHighlight() {
 // AIOps 诊断
 // ============================================================
 let aiopsAbortController = null;
+
+// 窗口宽度变化时重渲染 DAG (画布尺寸是 JS 算的固定像素, 跨断点缩放后需重算)
+let traceResizeTimer = null;
+window.addEventListener("resize", () => {
+    if (!aiopsTrace.steps.length) return;
+    clearTimeout(traceResizeTimer);
+    traceResizeTimer = setTimeout(renderTrace, 200);
+});
 let currentSessionId = "";
 
 // ---- Agent 执行轨迹收集 (流程图数据源) ----
