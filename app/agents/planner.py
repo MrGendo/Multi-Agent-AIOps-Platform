@@ -64,8 +64,14 @@ async def plan_node(state: PlanExecuteState) -> PlanExecuteState:
         detail = f"{type(e).__name__}: {e}"
         logger.exception(f"[Planner] 结构化输出失败, 使用 fallback 计划: {e}")
         logger.warning(f"[transition] node=planner reason={PLANNER_LLM_FAILED} detail={detail}")
+        fallback = harness.planner_fallback_plan("llm_failed")
+        # 兜底计划也发 plan 事件 (stream_sink 旁路): 前端计划面板不至于空着,
+        # 用户能看到"走了兜底"而非"没生成计划"
+        from app.agents.stream_sink import emit as emit_stream  # 惰性 import
+
+        await emit_stream({"type": "plan", "plan": fallback, "skill": skill_name})
         return {
-            "plan": harness.planner_fallback_plan("llm_failed"),
+            "plan": fallback,
             "iteration": 0,
             "pending_reroute": False,  # 清标记, 避免下轮误路由
             "transition_history": [make_transition("planner", PLANNER_LLM_FAILED, detail)],
@@ -74,8 +80,12 @@ async def plan_node(state: PlanExecuteState) -> PlanExecuteState:
     if not plan.steps:
         logger.warning("[Planner] LLM 返回空 steps, 使用 fallback")
         logger.warning(f"[transition] node=planner reason={PLANNER_EMPTY_STEPS}")
+        fallback = harness.planner_fallback_plan("empty_plan")
+        from app.agents.stream_sink import emit as emit_stream  # 惰性 import
+
+        await emit_stream({"type": "plan", "plan": fallback, "skill": skill_name})
         return {
-            "plan": harness.planner_fallback_plan("empty_plan"),
+            "plan": fallback,
             "iteration": 0,
             "pending_reroute": False,
             "transition_history": [make_transition("planner", PLANNER_EMPTY_STEPS, "LLM 返回空 steps")],
@@ -84,6 +94,17 @@ async def plan_node(state: PlanExecuteState) -> PlanExecuteState:
     logger.info(f"[Planner] 已生成 {len(plan.steps)} 步计划 (skill={skill.name}):")
     for i, step in enumerate(plan.steps, 1):
         logger.info(f"  Step {i}: {step}")
+
+    # plan 事件走 stream_sink: 专家子图在主图 astream() 里是黑盒 (expert_node 用
+    # subgraph.ainvoke), 主图节点流永远看不到 planner 的输出 — 必须从节点内部旁路.
+    # skill 显式带上, 多专家时前端按 (skill,iter) 复合键分泳道渲染计划.
+    from app.agents.stream_sink import emit as emit_stream  # 惰性 import, 防循环依赖
+
+    await emit_stream({
+        "type": "plan",
+        "plan": plan.steps,
+        "skill": skill_name,
+    })
 
     return {
         "plan": plan.steps,

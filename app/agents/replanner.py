@@ -227,6 +227,14 @@ async def replan_node(state: PlanExecuteState) -> PlanExecuteState:
         logger.info(
             f"[Replanner] Harness 快路径: {harness_decision.reason}, 剩余 {len(next_plan)} 步"
         )
+        # replan 事件走 stream_sink 旁路 (子图黑盒问题, 同 plan/step_complete)
+        from app.agents.stream_sink import emit as emit_stream  # 惰性 import
+
+        await emit_stream({
+            "type": "replan",
+            "plan": next_plan,
+            "skill": state.get("selected_skill", ""),
+        })
         return {
             "plan": next_plan,
             "transition_history": [
@@ -410,6 +418,14 @@ async def replan_node(state: PlanExecuteState) -> PlanExecuteState:
     logger.info(f"[Replanner] 决策: 继续执行 {len(new_plan)} 步")
     for i, step in enumerate(new_plan, 1):
         logger.info(f"  剩余步骤 {i}: {step}")
+    # replan 事件走 stream_sink 旁路 (子图黑盒问题, 同 plan/step_complete)
+    from app.agents.stream_sink import emit as emit_stream  # 惰性 import
+
+    await emit_stream({
+        "type": "replan",
+        "plan": new_plan,
+        "skill": state.get("selected_skill", ""),
+    })
     continue_transition = make_transition(
         "replanner", REPLANNER_CONTINUE, f"剩余 {len(new_plan)} 步"
     )

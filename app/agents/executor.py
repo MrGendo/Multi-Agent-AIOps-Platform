@@ -180,6 +180,16 @@ async def execute_node(state: PlanExecuteState) -> PlanExecuteState:
     preview = answer[:100].replace("\n", " ")
     logger.info(f"[Executor] 完成: {preview}...")
 
+    # step_complete 走 stream_sink 旁路 (同 plan: 主图 astream 看不到子图节点输出),
+    # 前端据此把 executing 卡收紧成 done + 渲染结果预览
+    await emit_stream({
+        "type": "step_complete",
+        "iteration": iteration,
+        "step": current_step,
+        "result_preview": answer[:200] + ("..." if len(answer) > 200 else ""),
+        "skill": selected_skill_name,
+    })
+
     return {
         "past_steps": [(current_step, answer)],
         "iteration": iteration,
