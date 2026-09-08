@@ -331,14 +331,15 @@ function renderTrace() {
     const ORCH_W = 150, ORCH_H = 44;                       // 编排 (选派专家) 节点
     const EXPERT_W = 130, EXPERT_H = 36;                   // 专家节点 (多专家扇出)
     const COL_GAP = 70, TOOL_COL_GAP = 46, ROW_GAP = 14;   // 列距 / 步骤纵距
-    const LANE_GAP = 56, LANE_TOP = 26;                    // 泳道间距 / 泳道顶部标签区高
+    const LANE_V_GAP = 56, LANE_TOP = 26;                  // 泳道垂直间距 / 泳道顶部标签区高
 
     // 0. 拆出编排伪步骤: skills_selected 写入的 iter=0 无工具条目只是选派专家,
     //    独立渲染在 开始 与各泳道 之间; iter=0 但带工具的是真实执行, 仍按普通步骤布局
     const orchStep = aiopsTrace.steps.find((s) => s.iter === 0 && !s.tools.length) || null;
 
     // 1. 按专家归属分泳道 (保持出现顺序); skill 为空 (单专家/未归属事件) 归 "-" 泳道。
-    //    多专家并行时每专家一条泳道水平并排, 泳道内仍是 Planner → 步骤纵列 → 工具子列
+    //    多专家并行时每专家一条泳道垂直堆叠, 所有专家节点共用同一 x 列
+    //    (紧跟 Orchestrator 右侧垂直扇出, 与架构图语义一致), 泳道内是 Planner → 步骤纵列 → 工具子列
     const lanes = [];
     aiopsTrace.steps.forEach((s) => {
         if (s === orchStep) return;
@@ -351,7 +352,7 @@ function renderTrace() {
     // 渲染结果与单链现状一致; 多专家才切换泳道布局
     const multi = lanes.length > 1;
 
-    // 2. 泳道纵向布局: 每个步骤占一个"块", 块高 = max(步骤节点高, 工具栈高)
+    // 2. 泳道内容块: 每个步骤占一个"块", 块高 = max(步骤节点高, 工具栈高)
     lanes.forEach((lane) => {
         lane.hasLabel = multi && !!lane.skill;
         lane.hasExpert = !!lane.skill;   // 有归属的泳道在 Planner 前多一个专家节点
@@ -361,34 +362,33 @@ function renderTrace() {
         });
         lane.contentH = lane.blocks.reduce((n, b) => n + b.h, 0)
             + (lane.blocks.length > 1 ? ROW_GAP * (lane.blocks.length - 1) : 0);
-        lane.top = multi ? LANE_TOP : 0;  // 多泳道顶部给标签留一行
-        lane.stepsY = lane.top;
     });
-    const canvasH = multi
-        ? Math.max(PILL_H, ...lanes.map((l) => l.top + l.contentH))
-        : Math.max(PILL_H, PLAN_H, lanes.length ? lanes[0].contentH : 0);
-    const midY = canvasH / 2;
+    // 泳道垂直堆叠: 各泳道自上而下排布, 中轴各自对齐自己内容的中点;
+    // 枢纽节点 (开始/编排/报告) 对齐画布中线, 专家节点从编排垂直扇出
+    let yAcc = multi ? LANE_TOP : 0;
     lanes.forEach((lane) => {
-        // 泳道中轴: 单链模式对齐画布中线 (与旧版观感一致), 泳道模式对齐自身步骤列
-        lane.midY = multi ? lane.stepsY + lane.contentH / 2 : midY;
+        lane.top = yAcc;
+        lane.midY = lane.top + lane.contentH / 2;
+        yAcc += lane.contentH + LANE_V_GAP;
     });
+    const canvasH = lanes.length
+        ? Math.max(PILL_H, PLAN_H, yAcc - LANE_V_GAP)
+        : Math.max(PILL_H, PLAN_H);
+    const midY = canvasH / 2;
 
-    // 3. 横向列: 开始 → (编排) → [泳道: (专家) → Planner → 步骤 → 工具子列] × N → 报告
+    // 3. 横向列 (所有泳道共用): 开始 → 编排 → 专家列(垂直扇出) → Planner → 步骤 → 工具子列 → 报告
     const xStart = 0;
     const xOrch = xStart + PILL_W + COL_GAP;               // 编排列, 仅 orchStep 存在时占用
-    let laneX = orchStep ? xOrch + ORCH_W + COL_GAP : xStart + PILL_W + COL_GAP;
-    lanes.forEach((lane) => {
-        lane.xExpert = lane.hasExpert ? laneX : null;
-        const xPlan = laneX + (lane.hasExpert ? EXPERT_W + COL_GAP : 0);
-        lane.xPlan = xPlan;
-        lane.xStep = xPlan + PLAN_W + COL_GAP;
-        lane.xTool = lane.xStep + STEP_W + TOOL_COL_GAP;
-        lane.hasTools = lane.blocks.some((b) => b.step.tools.length);
-        lane.right = lane.hasTools ? lane.xTool + TOOL_W : lane.xStep + STEP_W;
-        laneX = lane.right + LANE_GAP;
-    });
+    const xExpert = orchStep ? xOrch + ORCH_W + COL_GAP : xStart + PILL_W + COL_GAP;  // 专家列: 全部专家节点同 x, 紧跟编排
+    const anyExpert = lanes.some((l) => l.hasExpert);
+    const xPlan = xExpert + (anyExpert ? EXPERT_W + COL_GAP : 0);
+    const xStep = xPlan + PLAN_W + COL_GAP;
+    const xTool = xStep + STEP_W + TOOL_COL_GAP;
+    const hasTools = lanes.some((l) => l.blocks.some((b) => b.step.tools.length));
     // 退化场景: 无执行步骤 (泳道为空) 时不画 Planner, 报告紧跟选派专家
-    const xEnd = lanes.length ? laneX - LANE_GAP + COL_GAP : xOrch + ORCH_W + COL_GAP;
+    const xEnd = lanes.length
+        ? (hasTools ? xTool + TOOL_W : xStep + STEP_W) + COL_GAP
+        : xOrch + ORCH_W + COL_GAP;
     const canvasW = xEnd + PILL_W;
 
     // 4. 画布 + 连线层 (SVG 垫在节点下方)
@@ -433,19 +433,20 @@ function renderTrace() {
         edgePaths.push(bez(xStart + PILL_W, midY, xOrch, midY));
     }
 
-    // 6. 泳道渲染: 标签 + 专家节点 + Planner + 步骤纵列 + 工具子列, 末缘统一汇入报告
+    // 6. 泳道渲染: 标签 + 专家节点(公共列, 从编排垂直扇出) + Planner + 步骤纵列 + 工具子列
     lanes.forEach((lane) => {
         if (lane.hasLabel) {
             const lbl = mk("dag-lane-label", escapeHtml(shortSkill(lane.skill)));
             lbl.title = lane.skill;  // 短名截断后靠 title 看全名
-            lbl.style.left = `${lane.xPlan}px`; lbl.style.top = "2px";
+            lbl.style.left = `${xPlan}px`; lbl.style.top = `${Math.max(2, lane.top - 20)}px`;
             canvas.appendChild(lbl);
         }
         if (lane.hasExpert) {
             const ex = mk("dag-node dag-expert", escapeHtml(lane.skill));
             ex.title = lane.skill;  // 超宽截断后靠 title 看全文
-            addNode(ex, lane.xExpert, lane.midY - EXPERT_H / 2, EXPERT_W, EXPERT_H);
-            edgePaths.push(bez(orchStep ? xOrch + ORCH_W : xStart + PILL_W, midY, lane.xExpert, lane.midY));
+            addNode(ex, xExpert, lane.midY - EXPERT_H / 2, EXPERT_W, EXPERT_H);
+            // 扇出: 编排右缘 → 本泳道专家节点 (两条专家连线都从同一个编排节点出发)
+            edgePaths.push(bez(orchStep ? xOrch + ORCH_W : xStart + PILL_W, midY, xExpert, lane.midY));
         }
 
         const laneTools = lane.blocks.reduce((n, b) => n + b.step.tools.length, 0);
@@ -453,16 +454,16 @@ function renderTrace() {
             mk("dag-node dag-planner",
                 `<div class="dag-planner-title">Planner</div>
                  <div class="dag-planner-sub">计划 ${lane.blocks.length} 步 · ${laneTools} 工具</div>`),
-            lane.xPlan, lane.midY - PLAN_H / 2, PLAN_W, PLAN_H
+            xPlan, lane.midY - PLAN_H / 2, PLAN_W, PLAN_H
         );
         if (lane.hasExpert) {
-            edgePaths.push(bez(lane.xExpert + EXPERT_W, lane.midY, lane.xPlan, lane.midY));
+            edgePaths.push(bez(xExpert + EXPERT_W, lane.midY, xPlan, lane.midY));
         } else {
             // 无专家节点 (单链/未归属): 编排或开始直连 Planner
-            edgePaths.push(bez(orchStep ? xOrch + ORCH_W : xStart + PILL_W, midY, lane.xPlan, lane.midY));
+            edgePaths.push(bez(orchStep ? xOrch + ORCH_W : xStart + PILL_W, midY, xPlan, lane.midY));
         }
 
-        let yCur = lane.stepsY;
+        let yCur = lane.top;
         lane.blocks.forEach((b) => {
             const s = b.step;
             const cy = yCur + STEP_H / 2;
@@ -471,12 +472,12 @@ function renderTrace() {
                 `<span class="dag-step-num">${escapeHtml(String(s.iter))}</span>
                  <span class="dag-step-title">${escapeHtml(title)}</span>`);
             stepEl.title = title;  // 超宽截断后靠 title 看全文
-            addNode(stepEl, lane.xStep, yCur, STEP_W, STEP_H);
-            edgePaths.push(bez(lane.xPlan + PLAN_W, lane.midY, lane.xStep, cy));
+            addNode(stepEl, xStep, yCur, STEP_W, STEP_H);
+            edgePaths.push(bez(xPlan + PLAN_W, lane.midY, xStep, cy));
 
             // 工具子节点: 首个与步骤节点顶对齐, 之后向下紧凑堆叠
             let ty = yCur + 6;
-            let srcX = lane.xStep + STEP_W, srcY = cy;   // 无工具的步骤直接从自身右侧汇入报告
+            let srcX = xStep + STEP_W, srcY = cy;   // 无工具的步骤直接从自身右侧汇入报告
             s.tools.forEach((t, ti) => {
                 const tcy = ty + TOOL_H / 2;
                 const btn = document.createElement("button");
@@ -487,9 +488,9 @@ function renderTrace() {
                     <span class="trace-tool-icon">${t.status === "ok" ? "✓" : "✗"}</span>
                     <span class="trace-tool-name">${escapeHtml(t.name)}</span>
                     <span class="trace-tool-ms">${t.elapsed != null ? t.elapsed + "ms" : ""}</span>`;
-                addNode(btn, lane.xTool, ty, TOOL_W, TOOL_H);
-                edgePaths.push(bez(lane.xStep + STEP_W, cy, lane.xTool, tcy));
-                srcX = lane.xTool + TOOL_W; srcY = tcy;
+                addNode(btn, xTool, ty, TOOL_W, TOOL_H);
+                edgePaths.push(bez(xStep + STEP_W, cy, xTool, tcy));
+                srcX = xTool + TOOL_W; srcY = tcy;
                 ty += TOOL_H + TOOL_GAP;
             });
             edgePaths.push(bez(srcX, srcY, xEnd, midY));
