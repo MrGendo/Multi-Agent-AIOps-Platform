@@ -38,6 +38,7 @@ from loguru import logger
 from app.agents.action_executor import action_executor_node
 from app.agents.executor import execute_node
 from app.agents.planner import plan_node
+from app.agents.precheck import precheck_node
 from app.agents.remediation_planner import remediation_planner_node
 from app.agents.replanner import replan_node
 from app.agents.orchestrator import orchestrator_node
@@ -120,6 +121,13 @@ async def expert_node(state: PlanExecuteState) -> dict:
 # 主图：Main AIOps Graph (Orchestrator -> 并行专家 -> Merger -> 修复)
 # =====================================================================
 
+def route_after_precheck(state: PlanExecuteState) -> Literal["orchestrator", "__end__"]:
+    """Precheck 之后: 目标被证伪 (response 已填) 时直接短路到 END, 不进专家."""
+    if state.get("response"):
+        return END  # type: ignore[return-value]
+    return "orchestrator"
+
+
 def route_after_orchestrator(state: PlanExecuteState):
     """Orchestrator 之后，判断是直接结束还是扇出(Send)给多个专家。"""
     response = state.get("response", "")
@@ -151,14 +159,21 @@ def build_aiops_graph():
     """构建 AIOps 主图."""
     workflow = StateGraph(PlanExecuteState)
 
+    workflow.add_node("precheck", precheck_node)
     workflow.add_node("orchestrator", orchestrator_node)
     workflow.add_node("expert_node", expert_node)
     workflow.add_node("merger", merger_node)
     workflow.add_node("remediation_planner", remediation_planner_node)
     workflow.add_node("action_executor", action_executor_node)
 
-    workflow.add_edge(START, "orchestrator")
-    
+    workflow.add_edge(START, "precheck")
+
+    workflow.add_conditional_edges(
+        "precheck",
+        route_after_precheck,
+        ["orchestrator", END],
+    )
+
     workflow.add_conditional_edges(
         "orchestrator",
         route_after_orchestrator,

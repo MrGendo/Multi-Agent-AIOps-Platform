@@ -54,6 +54,7 @@ class PlanExecuteState(TypedDict, total=False):
     selected_skill: str
     selected_skills: List[str]                             # 主图使用: 并行拉起的多个专家
     skill_reason: str
+    precheck_status: str                                   # 预检结果: verified/refuted/unverifiable
     plan: List[str]
     past_steps: Annotated[List[Tuple[str, str]], operator.add]
     response: str

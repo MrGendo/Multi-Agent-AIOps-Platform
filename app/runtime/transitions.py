@@ -29,6 +29,11 @@ ROUTER_LLM_FAILED = "router_llm_failed"            # Router LLM 异常, 走规�
 ROUTER_FALLBACK_GENERIC = "router_fallback_generic"  # LLM 返回未知 skill, 回退 generic
 ROUTER_OK = "router_ok"                            # 正常选定 skill
 
+# === Precheck (目标存在性预检门) ===
+PRECHECK_OK = "precheck_ok"                        # 预检通过/无法验证, 放行
+PRECHECK_TARGET_REFUTED = "precheck_target_refuted"  # 目标本机不存在, 短路 (response 已填)
+PRECHECK_ENABLED_OFF = "precheck_enabled_off"      # env 开关关闭, 直接放行
+
 # === Planner ===
 PLANNER_LLM_FAILED = "planner_llm_failed"          # 结构化输出失败, 走 fallback plan
 PLANNER_EMPTY_STEPS = "planner_empty_steps"        # LLM 返回空 plan, 走 fallback

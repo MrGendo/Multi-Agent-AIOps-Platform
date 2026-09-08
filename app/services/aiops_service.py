@@ -168,7 +168,7 @@ async def stream_diagnose(
                     continue
                 # 其他都是 Executor 推出来的 token/step_start/tool_call 事件, 直接转 SSE.
                 etype = item.get("type", "token")
-                payload = {k: v for k, v in item.items() if k != "type"}
+                payload = {k: v for k, v in item.items() if k not in ("type", "message")}
                 if etype == "usage":
                     input_tokens += int(payload.get("input_tokens") or 0)
                     output_tokens += int(payload.get("output_tokens") or 0)
