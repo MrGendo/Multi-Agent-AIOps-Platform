@@ -53,6 +53,7 @@ REPLANNER_FINISHED_OK = "replanner_finished_ok"    # 正常完成
 REPLANNER_CONTINUE = "replanner_continue"          # 正常继续 (返回新 plan)
 REPLANNER_REROUTE = "replanner_reroute"            # 触发 Skill reroute (回 Planner 重新规划)
 REPLANNER_REROUTE_BLOCKED = "replanner_reroute_blocked"  # LLM 想 reroute 但被规则阻止 (次数/黑名单/证据不足)
+REPLANNER_NEG_EVIDENCE_STOP = "replanner_negative_evidence_stop"  # 负证据早停: 目标疑似不存在, 提前收尾
 
 # === Permission (留给 §1 在 tool_runner 里发) ===
 PERMISSION_DENIED = "permission_denied"

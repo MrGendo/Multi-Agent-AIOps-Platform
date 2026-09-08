@@ -23,6 +23,7 @@ from app.runtime.transitions import (
     REPLANNER_FINISHED_OK,
     REPLANNER_LLM_FAILED,
     REPLANNER_MAX_STEPS_FORCE,
+    REPLANNER_NEG_EVIDENCE_STOP,
     REPLANNER_NOT_FINISHED_EMPTY,
     REPLANNER_REROUTE,
     REPLANNER_REROUTE_BLOCKED,
@@ -222,6 +223,33 @@ async def replan_node(state: PlanExecuteState) -> PlanExecuteState:
     )
 
     harness_decision = get_agent_harness().evaluate_replanner_pre_llm(state)
+
+    # ---- 负证据早停 (软预检): 多步一致「目标查不到」时诚实止损, 不再烧 LLM 继续挖 ----
+    # 放在 harness 决策之后、LLM 调用之前: 省 token 且优先级高于常规 Replan。
+    from app.agents.negative_evidence import (
+        build_nonexistence_report,
+        count_negative_evidence,
+        should_stop_for_nonexistence,
+    )
+
+    neg = count_negative_evidence(past_steps)
+    if should_stop_for_nonexistence(neg):
+        logger.warning(
+            f"[Replanner] 负证据早停: strong={neg.strong} weak={neg.weak}, "
+            f"目标疑似不存在, 提前收尾 (skill={selected_skill})"
+        )
+        logger.warning(f"[transition] node=replanner reason={REPLANNER_NEG_EVIDENCE_STOP}")
+        return {
+            "response": build_nonexistence_report(user_input, neg, selected_skill, current_time),
+            "plan": [],
+            "transition_history": [
+                make_transition(
+                    "replanner", REPLANNER_NEG_EVIDENCE_STOP,
+                    f"strong={neg.strong} weak={neg.weak} steps={[s for s, _ in neg.strong_steps[:4]]}",
+                ),
+            ],
+        }
+
     if harness_decision.action == "continue_fast_path":
         next_plan = list(harness_decision.data.get("next_plan") or [])
         logger.info(
