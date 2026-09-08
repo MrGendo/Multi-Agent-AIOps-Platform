@@ -260,24 +260,59 @@ let currentSessionId = "";
 
 // ---- Agent 执行轨迹收集 (流程图数据源) ----
 const aiopsTrace = {
-    steps: [],      // {iter, step, tools: [{name, args, result, elapsed, status}], preview}
-    current: null,  // 正在执行的步骤
-    reset() { this.steps = []; this.current = null; },
-    ensureStep(iter, stepName) {
-        let s = this.steps.find((x) => x.iter === iter);
-        if (!s) { s = { iter, step: stepName || "", tools: [], preview: "" }; this.steps.push(s); }
+    steps: [],          // {key, iter, skill, step, tools: [{name, args, result, elapsed, status}], preview}
+    plans: new Map(),   // skill → plan[]: 多专家时按专家累积, 后到者不再覆盖前者
+    current: null,      // 正在执行的步骤
+    multiExpert: false, // skills_selected 标记: 并行多专家时步骤卡显示专家徽章
+    reset() { this.steps = []; this.plans = new Map(); this.current = null; this.multiExpert = false; },
+    // 多专家并行时各分支 iteration 都从 1 重数, 条目键必须用 (skill, iteration) 复合键,
+    // 否则专家 A 的第 1 步会和专家 B 的第 1 步撞进同一条目 (工具也全堆到一张卡)
+    keyOf(skill, iter) { return (skill || "-") + ":" + (iter || 0); },
+    ensureStep(skill, iter, stepName) {
+        const key = this.keyOf(skill, iter);
+        let s = this.steps.find((x) => x.key === key);
+        if (!s) { s = { key, iter: iter || 0, skill: skill || "", step: stepName || "", tools: [], preview: "" }; this.steps.push(s); }
         if (stepName && !s.step) s.step = stepName;
         this.current = s;
         return s;
     },
     addTool(ev) {
-        const s = this.current || this.ensureStep(0, "");
+        const s = this.current || this.ensureStep(ev.skill, 0, "");
         s.tools.push({
             name: ev.name, args: ev.args || "", result: ev.result_preview || "",
             elapsed: ev.elapsed_ms, status: ev.status,
         });
     },
 };
+
+// 专家短名: network_diagnosis → network, 用于泳道标签 / 步骤徽章 / 计划分组标题
+function shortSkill(s) {
+    return (s || "").replace(/_diagnosis$/, "").split("_")[0] || "?";
+}
+
+// 计划面板渲染: 单计划保持无前缀现状; 多专家时按 "专家短名 · N 步" 分组, 后到者不再覆盖
+function renderPlanPanel(planEl) {
+    if (!planEl) return;
+    planEl.innerHTML = "";
+    const mkRow = (i, step) => {
+        const div = document.createElement("div");
+        div.className = "plan-row";
+        div.innerHTML = `<span class="plan-num">${i + 1}</span><span>${escapeHtml(step)}</span>`;
+        return div;
+    };
+    if (aiopsTrace.plans.size <= 1) {
+        const rows = (aiopsTrace.plans.values().next().value) || [];
+        rows.forEach((step, i) => planEl.appendChild(mkRow(i, step)));
+        return;
+    }
+    aiopsTrace.plans.forEach((rows, skill) => {
+        const head = document.createElement("div");
+        head.className = "plan-group-title";
+        head.textContent = `${skill ? shortSkill(skill) : "未分组"} · ${rows.length} 步`;
+        planEl.appendChild(head);
+        rows.forEach((step, i) => planEl.appendChild(mkRow(i, step)));
+    });
+}
 
 function renderTrace() {
     const wrap = document.getElementById("aiops-trace");
@@ -294,38 +329,69 @@ function renderTrace() {
     const PILL_W = 84, PILL_H = 36;                        // 开始/报告 胶囊
     const PLAN_W = 170, PLAN_H = 48;                       // Planner 节点
     const ORCH_W = 150, ORCH_H = 44;                       // 编排 (选派专家) 节点
+    const EXPERT_W = 130, EXPERT_H = 36;                   // 专家节点 (多专家扇出)
     const COL_GAP = 70, TOOL_COL_GAP = 46, ROW_GAP = 14;   // 列距 / 步骤纵距
+    const LANE_GAP = 56, LANE_TOP = 26;                    // 泳道间距 / 泳道顶部标签区高
 
     // 0. 拆出编排伪步骤: skills_selected 写入的 iter=0 无工具条目只是选派专家,
-    //    独立渲染在 开始 与 Planner 之间的编排列; iter=0 但带工具的是真实执行, 仍按普通步骤布局
+    //    独立渲染在 开始 与各泳道 之间; iter=0 但带工具的是真实执行, 仍按普通步骤布局
     const orchStep = aiopsTrace.steps.find((s) => s.iter === 0 && !s.tools.length) || null;
 
-    // 1. 纵向布局: 每个步骤占一个"块", 块高 = max(步骤节点高, 工具栈高), 避免工具互相压叠
-    //    idx 保留在 aiopsTrace.steps 中的原始下标, 工具芯片点击回查数据时要用
-    const blocks = aiopsTrace.steps
-        .map((s, idx) => {
-            const toolsH = s.tools.length ? TOOL_H * s.tools.length + TOOL_GAP * (s.tools.length - 1) : 0;
-            return { idx, step: s, h: Math.max(STEP_H, toolsH + 6) };
-        })
-        .filter((b) => b.step !== orchStep);
-    const contentH = blocks.reduce((n, b) => n + b.h, 0) + (blocks.length ? ROW_GAP * (blocks.length - 1) : 0);
+    // 1. 按专家归属分泳道 (保持出现顺序); skill 为空 (单专家/未归属事件) 归 "-" 泳道。
+    //    多专家并行时每专家一条泳道水平并排, 泳道内仍是 Planner → 步骤纵列 → 工具子列
+    const lanes = [];
+    aiopsTrace.steps.forEach((s) => {
+        if (s === orchStep) return;
+        const id = s.skill || "-";
+        let lane = lanes.find((l) => l.id === id);
+        if (!lane) { lane = { id, skill: s.skill || "", steps: [] }; lanes.push(lane); }
+        lane.steps.push(s);
+    });
+    // 单专家 (只有一组泳道, 无论是否带 skill 归属) 不画泳道标签/专家节点,
+    // 渲染结果与单链现状一致; 多专家才切换泳道布局
+    const multi = lanes.length > 1;
 
-    // 2. 横向列: 开始 → (选派专家) → Planner → 步骤 → 工具子列 → 报告
+    // 2. 泳道纵向布局: 每个步骤占一个"块", 块高 = max(步骤节点高, 工具栈高)
+    lanes.forEach((lane) => {
+        lane.hasLabel = multi && !!lane.skill;
+        lane.hasExpert = !!lane.skill;   // 有归属的泳道在 Planner 前多一个专家节点
+        lane.blocks = lane.steps.map((s) => {
+            const toolsH = s.tools.length ? TOOL_H * s.tools.length + TOOL_GAP * (s.tools.length - 1) : 0;
+            return { step: s, h: Math.max(STEP_H, toolsH + 6) };
+        });
+        lane.contentH = lane.blocks.reduce((n, b) => n + b.h, 0)
+            + (lane.blocks.length > 1 ? ROW_GAP * (lane.blocks.length - 1) : 0);
+        lane.top = multi ? LANE_TOP : 0;  // 多泳道顶部给标签留一行
+        lane.stepsY = lane.top;
+    });
+    const canvasH = multi
+        ? Math.max(PILL_H, ...lanes.map((l) => l.top + l.contentH))
+        : Math.max(PILL_H, PLAN_H, lanes.length ? lanes[0].contentH : 0);
+    const midY = canvasH / 2;
+    lanes.forEach((lane) => {
+        // 泳道中轴: 单链模式对齐画布中线 (与旧版观感一致), 泳道模式对齐自身步骤列
+        lane.midY = multi ? lane.stepsY + lane.contentH / 2 : midY;
+    });
+
+    // 3. 横向列: 开始 → (编排) → [泳道: (专家) → Planner → 步骤 → 工具子列] × N → 报告
     const xStart = 0;
     const xOrch = xStart + PILL_W + COL_GAP;               // 编排列, 仅 orchStep 存在时占用
-    const xPlan = orchStep ? xOrch + ORCH_W + COL_GAP : xStart + PILL_W + COL_GAP;
-    const xStep = xPlan + PLAN_W + COL_GAP;
-    const xTool = xStep + STEP_W + TOOL_COL_GAP;
-    const hasTools = blocks.some((b) => b.step.tools.length);
-    // 退化场景: 计划未生成 (blocks 为空) 时不画 Planner, 报告紧跟选派专家
-    const xEnd = blocks.length
-        ? (hasTools ? xTool + TOOL_W : xStep + STEP_W) + COL_GAP
-        : xOrch + ORCH_W + COL_GAP;
+    let laneX = orchStep ? xOrch + ORCH_W + COL_GAP : xStart + PILL_W + COL_GAP;
+    lanes.forEach((lane) => {
+        lane.xExpert = lane.hasExpert ? laneX : null;
+        const xPlan = laneX + (lane.hasExpert ? EXPERT_W + COL_GAP : 0);
+        lane.xPlan = xPlan;
+        lane.xStep = xPlan + PLAN_W + COL_GAP;
+        lane.xTool = lane.xStep + STEP_W + TOOL_COL_GAP;
+        lane.hasTools = lane.blocks.some((b) => b.step.tools.length);
+        lane.right = lane.hasTools ? lane.xTool + TOOL_W : lane.xStep + STEP_W;
+        laneX = lane.right + LANE_GAP;
+    });
+    // 退化场景: 无执行步骤 (泳道为空) 时不画 Planner, 报告紧跟选派专家
+    const xEnd = lanes.length ? laneX - LANE_GAP + COL_GAP : xOrch + ORCH_W + COL_GAP;
     const canvasW = xEnd + PILL_W;
-    const canvasH = Math.max(contentH, PLAN_H);
-    const midY = canvasH / 2;
 
-    // 3. 画布 + 连线层 (SVG 垫在节点下方)
+    // 4. 画布 + 连线层 (SVG 垫在节点下方)
     const canvas = document.createElement("div");
     canvas.className = "trace-canvas";
     canvas.style.width = `${canvasW}px`;
@@ -354,69 +420,88 @@ function renderTrace() {
         return el;
     };
 
-    // 4. 枢纽节点: 开始 / 编排 / Planner, 纵向居中于画布 (无执行步骤时 Planner 不出现)
-    const totalTools = blocks.reduce((n, b) => n + b.step.tools.length, 0);
+    // 5. 开始 / 编排枢纽: 编排节点纵向居中于画布, 多专家时只标路数 (专家名在各泳道节点上)
     addNode(mk("dag-node dag-start", "开始"), xStart, midY - PILL_H / 2, PILL_W, PILL_H);
     if (orchStep) {
         // 去掉 "Orchestrator 选派专家:" 前缀只留专家名; 无该前缀时整段原文展示
         const names = orchStep.step.replace(/^Orchestrator 选派专家:\s*/, "") || "选派专家";
         const orchEl = mk("dag-node dag-orch",
             `<div class="dag-orch-label">Orchestrator</div>
-             <div class="dag-orch-names">${escapeHtml(names)}</div>`);
+             <div class="dag-orch-names">${multi ? `${lanes.length} 路专家并行` : escapeHtml(names)}</div>`);
         orchEl.title = orchStep.step;  // 名单超宽截断后靠 title 看全文
         addNode(orchEl, xOrch, midY - ORCH_H / 2, ORCH_W, ORCH_H);
         edgePaths.push(bez(xStart + PILL_W, midY, xOrch, midY));
     }
-    if (blocks.length) {
+
+    // 6. 泳道渲染: 标签 + 专家节点 + Planner + 步骤纵列 + 工具子列, 末缘统一汇入报告
+    lanes.forEach((lane) => {
+        if (lane.hasLabel) {
+            const lbl = mk("dag-lane-label", escapeHtml(shortSkill(lane.skill)));
+            lbl.title = lane.skill;  // 短名截断后靠 title 看全名
+            lbl.style.left = `${lane.xPlan}px`; lbl.style.top = "2px";
+            canvas.appendChild(lbl);
+        }
+        if (lane.hasExpert) {
+            const ex = mk("dag-node dag-expert", escapeHtml(lane.skill));
+            ex.title = lane.skill;  // 超宽截断后靠 title 看全文
+            addNode(ex, lane.xExpert, lane.midY - EXPERT_H / 2, EXPERT_W, EXPERT_H);
+            edgePaths.push(bez(orchStep ? xOrch + ORCH_W : xStart + PILL_W, midY, lane.xExpert, lane.midY));
+        }
+
+        const laneTools = lane.blocks.reduce((n, b) => n + b.step.tools.length, 0);
         addNode(
             mk("dag-node dag-planner",
                 `<div class="dag-planner-title">Planner</div>
-                 <div class="dag-planner-sub">计划 ${blocks.length} 步 · ${totalTools} 工具</div>`),
-            xPlan, midY - PLAN_H / 2, PLAN_W, PLAN_H
+                 <div class="dag-planner-sub">计划 ${lane.blocks.length} 步 · ${laneTools} 工具</div>`),
+            lane.xPlan, lane.midY - PLAN_H / 2, PLAN_W, PLAN_H
         );
-        edgePaths.push(bez(orchStep ? xOrch + ORCH_W : xStart + PILL_W, midY, xPlan, midY));
-    }
+        if (lane.hasExpert) {
+            edgePaths.push(bez(lane.xExpert + EXPERT_W, lane.midY, lane.xPlan, lane.midY));
+        } else {
+            // 无专家节点 (单链/未归属): 编排或开始直连 Planner
+            edgePaths.push(bez(orchStep ? xOrch + ORCH_W : xStart + PILL_W, midY, lane.xPlan, lane.midY));
+        }
 
-    // 5. 步骤节点纵向铺开, 从 Planner 扇出; 各自的工具子节点挂在右侧子列, 最终汇入报告
-    let yCur = 0;
-    blocks.forEach((b) => {
-        const s = b.step;
-        const cy = yCur + STEP_H / 2;
-        const title = s.step || `步骤 ${s.iter}`;
-        const stepEl = mk("dag-node dag-step",
-            `<span class="dag-step-num">${escapeHtml(String(s.iter))}</span>
-             <span class="dag-step-title">${escapeHtml(title)}</span>`);
-        stepEl.title = title;  // 超宽截断后靠 title 看全文
-        addNode(stepEl, xStep, yCur, STEP_W, STEP_H);
-        edgePaths.push(bez(xPlan + PLAN_W, midY, xStep, cy));
+        let yCur = lane.stepsY;
+        lane.blocks.forEach((b) => {
+            const s = b.step;
+            const cy = yCur + STEP_H / 2;
+            const title = s.step || `步骤 ${s.iter}`;
+            const stepEl = mk("dag-node dag-step",
+                `<span class="dag-step-num">${escapeHtml(String(s.iter))}</span>
+                 <span class="dag-step-title">${escapeHtml(title)}</span>`);
+            stepEl.title = title;  // 超宽截断后靠 title 看全文
+            addNode(stepEl, lane.xStep, yCur, STEP_W, STEP_H);
+            edgePaths.push(bez(lane.xPlan + PLAN_W, lane.midY, lane.xStep, cy));
 
-        // 工具子节点: 首个与步骤节点顶对齐, 之后向下紧凑堆叠
-        let ty = yCur + 6;
-        let srcX = xStep + STEP_W, srcY = cy;   // 无工具的步骤直接从自身右侧汇入报告
-        s.tools.forEach((t, ti) => {
-            const tcy = ty + TOOL_H / 2;
-            const btn = document.createElement("button");
-            btn.className = `trace-tool ${t.status === "ok" ? "ok" : "fail"}`;
-            btn.dataset.step = String(b.idx);  // 用原始下标, 点击时才能回查到 aiopsTrace.steps 对应条目
-            btn.dataset.tool = String(ti);
-            btn.innerHTML = `
-                <span class="trace-tool-icon">${t.status === "ok" ? "✓" : "✗"}</span>
-                <span class="trace-tool-name">${escapeHtml(t.name)}</span>
-                <span class="trace-tool-ms">${t.elapsed != null ? t.elapsed + "ms" : ""}</span>`;
-            addNode(btn, xTool, ty, TOOL_W, TOOL_H);
-            edgePaths.push(bez(xStep + STEP_W, cy, xTool, tcy));
-            srcX = xTool + TOOL_W; srcY = tcy;
-            ty += TOOL_H + TOOL_GAP;
+            // 工具子节点: 首个与步骤节点顶对齐, 之后向下紧凑堆叠
+            let ty = yCur + 6;
+            let srcX = lane.xStep + STEP_W, srcY = cy;   // 无工具的步骤直接从自身右侧汇入报告
+            s.tools.forEach((t, ti) => {
+                const tcy = ty + TOOL_H / 2;
+                const btn = document.createElement("button");
+                btn.className = `trace-tool ${t.status === "ok" ? "ok" : "fail"}`;
+                btn.dataset.traceKey = s.key;  // 复合键, 点击时回查 aiopsTrace.steps 对应条目
+                btn.dataset.tool = String(ti);
+                btn.innerHTML = `
+                    <span class="trace-tool-icon">${t.status === "ok" ? "✓" : "✗"}</span>
+                    <span class="trace-tool-name">${escapeHtml(t.name)}</span>
+                    <span class="trace-tool-ms">${t.elapsed != null ? t.elapsed + "ms" : ""}</span>`;
+                addNode(btn, lane.xTool, ty, TOOL_W, TOOL_H);
+                edgePaths.push(bez(lane.xStep + STEP_W, cy, lane.xTool, tcy));
+                srcX = lane.xTool + TOOL_W; srcY = tcy;
+                ty += TOOL_H + TOOL_GAP;
+            });
+            edgePaths.push(bez(srcX, srcY, xEnd, midY));
+            yCur += b.h + ROW_GAP;
         });
-        edgePaths.push(bez(srcX, srcY, xEnd, midY));
-        yCur += b.h + ROW_GAP;
     });
 
-    // 6. 报告节点 (退化场景下由选派专家直接汇入, 不经过 Planner)
+    // 7. 报告节点 (退化场景下由选派专家直接汇入, 不经过 Planner)
     addNode(mk("dag-node dag-end", "报告"), xEnd, midY - PILL_H / 2, PILL_W, PILL_H);
-    if (orchStep && !blocks.length) edgePaths.push(bez(xOrch + ORCH_W, midY, xEnd, midY));
+    if (orchStep && !lanes.length) edgePaths.push(bez(xOrch + ORCH_W, midY, xEnd, midY));
 
-    // 7. 连线: 节点入场后描线 (stroke-dashoffset 过渡), reduced-motion 时跳过由 CSS 兜底
+    // 8. 连线: 节点入场后描线 (stroke-dashoffset 过渡), reduced-motion 时跳过由 CSS 兜底
     edgePaths.forEach((d, i) => {
         const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
         p.setAttribute("d", d);
@@ -430,18 +515,18 @@ function renderTrace() {
         p.style.strokeDashoffset = "0";
     });
 
-    // 8. 节点入场错峰: 每个节点延迟 40ms (动画本体在 CSS dagNodeIn)
+    // 9. 节点入场错峰: 每个节点延迟 40ms (动画本体在 CSS dagNodeIn)
     if (!reduced) nodes.forEach((el, i) => { el.style.animationDelay = `${i * 40}ms`; });
 
-    // 9. 工具节点点击 → 画布下方展开 输入/输出 详情 (同时只开一个, 再点同一个收起)
+    // 10. 工具节点点击 → 画布下方展开 输入/输出 详情 (同时只开一个, 再点同一个收起)
     let openedKey = "";
     canvas.addEventListener("click", (e) => {
         const btn = e.target.closest(".trace-tool");
         if (!btn) return;
-        const step = aiopsTrace.steps[Number(btn.dataset.step)];
+        const step = aiopsTrace.steps.find((x) => x.key === btn.dataset.traceKey);
         const tool = step && step.tools[Number(btn.dataset.tool)];
         if (!tool) return;
-        const key = `${btn.dataset.step}:${btn.dataset.tool}`;
+        const key = `${btn.dataset.traceKey}:${btn.dataset.tool}`;
         let detail = tl.querySelector(".trace-detail");
         if (detail && openedKey === key) { detail.remove(); openedKey = ""; return; }
         if (!detail) {
@@ -454,6 +539,9 @@ function renderTrace() {
             <div class="trace-detail-block"><div class="trace-detail-label">输出</div><pre>${escapeHtml(tool.result || "(无)")}</pre></div>`;
         openedKey = key;
     });
+
+    // 11. 画布超宽横向滚动 (trace-wrap overflow-x:auto), 跟随到最右侧的最新泳道
+    wrap.scrollLeft = wrap.scrollWidth;
 
     wrap.classList.remove("hidden");
 }
@@ -599,34 +687,36 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
 
         skills.forEach((s, i) => highlightSkill(s, d.reason, i > 0));
         statusEl.textContent = `并行拉起专家: ${skills.join(', ') || "(无)"}, 会诊中…`;
-        aiopsTrace.ensureStep(0, `Orchestrator 选派专家: ${skills.join(" + ")}`);
+        aiopsTrace.multiExpert = skills.length > 1;
+        aiopsTrace.ensureStep("", 0, `Orchestrator 选派专家: ${skills.join(" + ")}`);
     } else if (t === "plan") {
-        planEl.innerHTML = "";
-        (d.plan || []).forEach((step, i) => {
-            const div = document.createElement("div");
-            div.className = "plan-row";
-            div.innerHTML = `<span class="plan-num">${i + 1}</span><span>${escapeHtml(step)}</span>`;
-            planEl.appendChild(div);
-        });
-        statusEl.textContent = `已生成 ${d.plan.length} 步计划`;
+        // 多专家时各专家都会发 plan, 按 skill 累积 (后到者不再覆盖前者)
+        aiopsTrace.plans.set(d.skill || "", d.plan || []);
+        renderPlanPanel(planEl);
+        statusEl.textContent = `已生成 ${(d.plan || []).length} 步计划`;
         // 横向轨道: 新计划时同步清空执行轨道
         const hint = document.getElementById("aiops-plan-hint");
-        if (hint) hint.textContent = `计划 ${d.plan.length} 步 · 执行进度见下方轨道`;
+        if (hint) hint.textContent = `计划 ${(d.plan || []).length} 步 · 执行进度见下方轨道`;
     } else if (t === "step_start") {
         // 创建 "executing" 卡片, 后续 step_token 往里追加流式内容
-        let div = stepsEl.querySelector(`[data-step-iter="${d.iteration}"]`);
+        // 卡片按 (skill, iteration) 复合键索引: 多专家并行时 iteration 撞号也不能互串
+        const key = aiopsTrace.keyOf(d.skill, d.iteration);
+        let div = stepsEl.querySelector(`[data-step-key="${key}"]`);
         if (!div) {
             div = document.createElement("div");
             div.className = "step-item executing";
-            div.dataset.stepIter = String(d.iteration);
-            div.innerHTML = `<div class="step-title">▶ 步骤 ${escapeHtml(String(d.iteration))}</div>
+            div.dataset.stepKey = key;
+            // 多专家时卡片头部加专家徽章, 单专家保持现状观感
+            const badge = aiopsTrace.multiExpert && d.skill
+                ? `<span class="step-badge">${escapeHtml(shortSkill(d.skill))}</span>` : "";
+            div.innerHTML = `<div class="step-title">${badge}▶ 步骤 ${escapeHtml(String(d.iteration))}</div>
                 <div class="step-desc">${escapeHtml(d.step || "")}</div>
                 <div class="step-stream"></div>`;
             stepsEl.appendChild(div);
         }
         stepsEl.scrollLeft = stepsEl.scrollWidth;  // 横向轨道: 滚到最新步骤
         statusEl.textContent = `正在执行第 ${d.iteration} 步…`;
-        aiopsTrace.ensureStep(d.iteration, d.step);
+        aiopsTrace.ensureStep(d.skill, d.iteration, d.step);
         // 监控面板: 更新当前步骤 + 清空实时输出 (每步重置)
         setText("mon-step", String(d.iteration));
         setText("mon-step-label", (d.step || "").slice(0, 40));
@@ -634,15 +724,17 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
         const stream = document.getElementById("mon-stream");
         if (stream) stream.textContent = "";
     } else if (t === "step_token") {
-        const iter = d.iteration || 0;
         const content = d.content || "";
-        let div = stepsEl.querySelector(`[data-step-iter="${iter}"]`);
+        const key = aiopsTrace.keyOf(d.skill, d.iteration);
+        let div = stepsEl.querySelector(`[data-step-key="${key}"]`);
         if (!div) {
             // 兜底: 没收到 step_start 就先建一张卡
             div = document.createElement("div");
             div.className = "step-item executing";
-            div.dataset.stepIter = String(iter);
-            div.innerHTML = `<div class="step-title">▶ 步骤 ${escapeHtml(String(iter))}</div>
+            div.dataset.stepKey = key;
+            const badge = aiopsTrace.multiExpert && d.skill
+                ? `<span class="step-badge">${escapeHtml(shortSkill(d.skill))}</span>` : "";
+            div.innerHTML = `<div class="step-title">${badge}▶ 步骤 ${escapeHtml(String(d.iteration || 0))}</div>
                 <div class="step-stream"></div>`;
             stepsEl.appendChild(div);
         }
@@ -720,22 +812,34 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
         }
     } else if (t === "step_complete") {
         // 把之前 executing 的卡片收紧成 done + 替换为结果预览
-        const iter = d.iteration || 0;
-        let div = stepsEl.querySelector(`[data-step-iter="${iter}"]`);
+        const key = aiopsTrace.keyOf(d.skill, d.iteration);
+        let div = stepsEl.querySelector(`[data-step-key="${key}"]`);
         if (!div) {
-            div = document.createElement("div");
-            div.dataset.stepIter = String(iter);
-            stepsEl.appendChild(div);
+            // 老事件不带 skill: 按 iter 模糊认领已建卡片, 认领不到再新建
+            const hit = aiopsTrace.steps.find((x) => x.iter === (d.iteration || 0) && x.key !== aiopsTrace.keyOf("", 0));
+            div = hit && stepsEl.querySelector(`[data-step-key="${hit.key}"]`);
+            if (!div) {
+                div = document.createElement("div");
+                div.dataset.stepKey = key;
+                stepsEl.appendChild(div);
+            }
         }
         div.className = "step-item done";
-        div.innerHTML = `<div class="step-title">✓ 步骤 ${escapeHtml(String(iter))}</div>
+        // 完成态保留专家徽章 (与执行态一致, 多专家时可分辨该步属于谁)
+        const doneBadge = aiopsTrace.multiExpert && d.skill
+            ? `<span class="step-badge">${escapeHtml(shortSkill(d.skill))}</span>` : "";
+        div.innerHTML = `<div class="step-title">${doneBadge}✓ 步骤 ${escapeHtml(String(d.iteration || 0))}</div>
             <div class="step-desc">${escapeHtml(d.step || "")}</div>
             <div class="step-preview">${escapeHtml((d.result_preview || "").slice(0, 200))}</div>`;
         stepsEl.scrollLeft = stepsEl.scrollWidth;  // 横向轨道: 跟随最新
         statusEl.textContent = `已完成 ${d.iteration} 步`;
         {
-            const s = aiopsTrace.ensureStep(d.iteration, d.step);
+            // 与上面卡片同源的认领逻辑: 优先复合键, 老事件按 iter 模糊认领, 都没有才新建
+            let s = aiopsTrace.steps.find((x) => x.key === key);
+            if (!s) s = aiopsTrace.steps.find((x) => x.iter === (d.iteration || 0) && x.key !== aiopsTrace.keyOf("", 0));
+            if (!s) s = aiopsTrace.ensureStep(d.skill, d.iteration, d.step);
             s.preview = d.result_preview || "";
+            if (d.step && !s.step) s.step = d.step;
         }
     } else if (t === "replan") {
         const div = document.createElement("div");

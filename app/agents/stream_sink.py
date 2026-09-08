@@ -22,14 +22,24 @@ _sink_var: ContextVar[Optional["asyncio.Queue[Dict[str, Any]]"]] = ContextVar(
     "executor_stream_sink", default=None
 )
 _step_var: ContextVar[int] = ContextVar("executor_current_step", default=0)
+# 当前步骤所属专家 (skill name). 多专家 Send 并行时各分支 iteration 都从 1 重数,
+# 前端必须靠 (skill, iteration) 复合键才能把事件归到正确泳道, 所以事件必须带 skill.
+_skill_var: ContextVar[Optional[str]] = ContextVar("executor_current_skill", default=None)
 
 
 def set_sink(queue: "asyncio.Queue[Dict[str, Any]]") -> None:
     _sink_var.set(queue)
 
 
-def set_step(iteration: int) -> None:
+def set_step(iteration: int, skill: Optional[str] = None) -> None:
+    """记录当前步号与所属专家.
+
+    skill 为 None 时保持原值不变 (兼容只更新步号的旧调用);
+    显式传空串 "" 表示"无专家"场景, 会清掉之前的值.
+    """
     _step_var.set(iteration)
+    if skill is not None:
+        _skill_var.set(skill)
 
 
 def get_step() -> int:
@@ -56,6 +66,9 @@ async def emit(event: Dict[str, Any]) -> None:
             )
         return
     event.setdefault("iteration", _step_var.get())
+    # 补专家归属: tool_call / step_token 等事件由 tool_runner 发出, 它不知道 skill,
+    # 统一在这里从 ContextVar 补 (调用方显式带过 skill 的不被覆盖)
+    event.setdefault("skill", _skill_var.get())
     try:
         q.put_nowait(event)
         _emit_count += 1

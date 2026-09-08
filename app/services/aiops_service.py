@@ -266,6 +266,7 @@ async def _convert_node_event(
             "plan_created",
             message=f"诊断计划已生成, 共 {len(plan)} 步",
             plan=plan,
+            skill=node_output.get("selected_skill", ""),  # Send 分支各自回写, 事件带专家归属
         )
 
     elif node_name == "executor":
@@ -281,6 +282,7 @@ async def _convert_node_event(
                 iteration=iteration,
                 step=step,
                 result_preview=preview,
+                skill=node_output.get("selected_skill", ""),  # 同上
             )
 
     elif node_name == "critic":

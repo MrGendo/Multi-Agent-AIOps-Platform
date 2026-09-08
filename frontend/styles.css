@@ -603,6 +603,34 @@ body {
 .dag-node.dag-orch { flex-direction: column; gap: 1px; padding: 4px 10px; border-color: rgba(113, 112, 255, 0.35); }
 .dag-orch-label { font-family: var(--mono); font-size: 9.5px; font-weight: 590; color: var(--accent-hover); letter-spacing: .02em; }
 .dag-orch-names { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; font-weight: 510; color: var(--text-2); }
+/* 专家节点: 多专家 Send 并行时, 每个专家从 Orchestrator 扇出一个小节点领一条泳道 */
+.dag-node.dag-expert {
+    font-family: var(--mono); font-size: 10px; font-weight: 590;
+    color: var(--accent-hover); padding: 0 8px;
+    border-color: rgba(113, 112, 255, 0.35);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 泳道标签: 泳道列顶部的专家短名, 无边框纯文字 */
+.dag-lane-label {
+    position: absolute; z-index: 1; height: 18px; line-height: 18px;
+    font-family: var(--mono); font-size: 9.5px; font-weight: 590;
+    color: var(--text-4); letter-spacing: .06em; text-transform: uppercase;
+    pointer-events: none;
+}
+/* 步骤卡专家徽章: 多专家时标记该步属于哪个专家, 单专家不渲染 */
+.step-badge {
+    display: inline-flex; align-items: center; margin-right: 6px; padding: 0 6px;
+    border-radius: 9999px; font-family: var(--mono); font-size: 9.5px;
+    color: var(--accent-hover); background: rgba(94, 106, 210, 0.16);
+    vertical-align: 1px;
+}
+/* 计划分组标题: 多专家时按 "专家短名 · N 步" 分组展示各自计划 */
+.plan-group-title {
+    font-family: var(--mono); font-size: 10px; font-weight: 590;
+    color: var(--text-4); letter-spacing: .04em;
+    margin: 8px 0 4px; padding-top: 6px; border-top: 1px dashed var(--border-subtle);
+}
+.plan-group-title:first-child { margin-top: 0; padding-top: 0; border-top: none; }
 .dag-node.dag-step { justify-content: flex-start; gap: 8px; padding: 0 10px; }
 .dag-step-num {
     flex-shrink: 0; width: 17px; height: 17px; border-radius: 50%;
@@ -615,8 +643,7 @@ body {
     font-size: 11.5px; font-weight: 510; color: var(--text-1);
 }
 
-/* 工具子节点: 复用 .trace-tool 类名, 绝对定位在步骤右侧的紧凑纵向子列 */
-.trace-tool {
+/* 工具子节点: 复用 .trace-tool 类名, 绝对定位在步骤右侧的紧凑纵向子列 */.trace-tool {
     position: absolute; z-index: 1;
     display: inline-flex; align-items: center; gap: 6px; padding: 0 9px;
     border-radius: 6px; cursor: pointer; font-size: 11px; font-family: var(--mono);

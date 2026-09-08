@@ -88,7 +88,8 @@ async def plan_node(state: PlanExecuteState) -> PlanExecuteState:
     return {
         "plan": plan.steps,
         "iteration": 0,
-        "pending_reroute": False,  # 清标记, 避免下轮误路由
+        "selected_skill": skill_name,  # 回写: aiops_service 转 plan 事件时带上专家归属
+        "pending_reroute": False,
         "transition_history": [
             make_transition(
                 "planner",

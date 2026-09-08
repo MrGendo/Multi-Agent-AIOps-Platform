@@ -107,14 +107,17 @@ async def execute_node(state: PlanExecuteState) -> PlanExecuteState:
     total_steps = len(plan)
 
     logger.info(f"[Executor] 第 {iteration} 步执行: {current_step}")
-    # 把当前步号放进 context, 让 tool_runner 的 emit() 自动带 iteration.
+    # 把当前步号 + 所属专家放进 context, 让 tool_runner 的 emit() 自动带 iteration/skill.
     # 同时推一条 step_start, 让前端能在 LLM token 到来前就先占好卡片.
-    set_step(iteration)
+    # skill 必须先读: 多专家并行时 iteration 各自从 1 重数, 前端靠 (skill, iteration) 复合键分泳道.
+    selected_skill_name = state.get("selected_skill", "")
+    set_step(iteration, skill=selected_skill_name)
     await emit_stream({
         "type": "step_start",
         "iteration": iteration,
         "step": current_step,
         "total": total_steps,
+        "skill": selected_skill_name,
     })
 
     # 防死循环: 硬性步数上限
@@ -132,7 +135,6 @@ async def execute_node(state: PlanExecuteState) -> PlanExecuteState:
             ],
         }
 
-    selected_skill_name = state.get("selected_skill", "")
     perm_mode = parse_permission_mode(
         state.get("permission_mode") or harness.default_permission_mode()
     )
@@ -181,6 +183,7 @@ async def execute_node(state: PlanExecuteState) -> PlanExecuteState:
     return {
         "past_steps": [(current_step, answer)],
         "iteration": iteration,
+        "selected_skill": selected_skill_name,  # 回写: aiops_service 转 step_complete 事件时带上专家归属
         "critic_feedback": "", # 清空之前的驳回意见，避免无限循环时带错
         "transition_history": [
             make_transition("executor", transition_reason, transition_detail),
