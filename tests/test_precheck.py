@@ -142,9 +142,6 @@ async def test_graph_short_circuits_before_experts(monkeypatch):
         return "Connection refused (RST, no listener)"
     monkeypatch.setattr(pc, "_probe_port", fake_probe)
 
-    saw_orchestrator = {"yes": False}
-    real_orch = None
-
     # 用图级 checkpointer 跑, 断言 response 已填且 expert_reports 为空
     graph = build_aiops_graph()
     result = await graph.ainvoke(

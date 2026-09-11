@@ -206,7 +206,7 @@ async def run_precheck(query: str) -> PrecheckVerdict:
             if _is_refused(r1) and _is_refused(r2):
                 refuted.append(RefutedTarget(
                     spec=spec,
-                    evidence=f"Connection refused x2（RST，端口无监听）",
+                    evidence="Connection refused x2（RST，端口无监听）",
                 ))
             elif _is_open(r1) or _is_open(r2):
                 verified_any = True
