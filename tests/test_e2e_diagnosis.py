@@ -144,6 +144,15 @@ def redis_e2e(monkeypatch, tmp_path):
     monkeypatch.setattr(orchestrator_mod, "ainvoke_structured", fake_orch_structured)
     monkeypatch.setattr(remediation_mod, "ainvoke_structured", fake_remediation_structured)
 
+    # 预检门放行: 本测试验证诊断主链路, 不应依赖宿主机真有 Redis 监听.
+    # (预检自身行为由 tests/test_precheck.py 专门覆盖)
+    import app.agents.precheck as precheck_mod
+
+    async def _probe_open(host: str, port: int) -> str:  # noqa: ANN001
+        return "open: connected"
+
+    monkeypatch.setattr(precheck_mod, "_probe_port", _probe_open)
+
     # executor 的 agent 缓存清掉, 保证 monkeypatch 生效
     # 在 tool_runner 层记录沙箱真实调用 (StructuredTool 不许 setattr.invoke)
     import app.runtime.tool_runner as tool_runner_mod
