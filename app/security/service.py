@@ -154,7 +154,50 @@ async def stream_triage(
 
     # ===== 4. 收尾 =====
     fact_sheet = final_state.get("fact_sheet", "")
+    verdict = final_state.get("verdict", "")
+    severity = final_state.get("severity", "")
+    confidence = float(final_state.get("confidence") or 0.0)
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+    # 取证引导: 无法判定/低置信时, 按 alert_type 给「设备→操作→证据」清单
+    guidance_md = ""
+    dialogue_session_id = ""
+    if fact_sheet:
+        try:
+            from app.security.followup import (
+                build_followup_guidance,
+                needs_guidance,
+                render_guidance_markdown,
+            )
+
+            if needs_guidance(verdict, confidence):
+                guidance = build_followup_guidance(
+                    final_state.get("alert_type", ""),
+                    final_state.get("iocs") or {},
+                    reason=final_state.get("verdict_reason", ""),
+                    confidence=confidence,
+                )
+                guidance_md = render_guidance_markdown(guidance)
+        except Exception as exc:
+            logger.warning(f"[secops] 取证引导生成失败 (忽略): {exc}")
+
+        # 创建研判对话会话 (分析师可继续补充证据多轮研判)
+        try:
+            from app.security.dialogue import create_session
+
+            dlg = create_session(
+                alert_text=query,
+                report=fact_sheet + guidance_md,
+                verdict=verdict,
+                severity=severity,
+                response_mode=final_state.get("response_mode", ""),
+                iocs=final_state.get("iocs") or {},
+                alert_type=final_state.get("alert_type", ""),
+                base_session_id=session_id,
+            )
+            dialogue_session_id = dlg.session_id
+        except Exception as exc:
+            logger.warning(f"[secops] 对话会话创建失败 (忽略): {exc}")
 
     # 研判经验异步沉淀 (与 AIOps 域 consolidation 对称; fail-soft 不阻塞)
     if fact_sheet:
@@ -163,20 +206,32 @@ async def stream_triage(
 
             asyncio.create_task(
                 consolidate_triage_report(
-                    session_id, query, fact_sheet, final_state.get("verdict", "")
+                    session_id, query, fact_sheet, verdict
                 )
             )
         except Exception as exc:
             logger.warning(f"[secops] 经验沉淀触发失败 (忽略): {exc}")
+
+    # 取证引导作为独立事件 (前端在报告下方渲染)
+    if guidance_md:
+        yield _make_event(
+            "followup_guidance",
+            "needs_more_evidence",
+            message="当前证据不足以确定判定, 已生成取证引导",
+            guidance_md=guidance_md,
+            needs_evidence=True,
+        )
 
     yield _make_event(
         "complete",
         "triage_complete",
         message="安全研判流程完成",
         elapsed_ms=elapsed_ms,
-        verdict=final_state.get("verdict", ""),
+        verdict=verdict,
         response_mode=final_state.get("response_mode", ""),
         report_len=len(fact_sheet),
+        dialogue_session_id=dialogue_session_id,
+        has_guidance=bool(guidance_md),
     )
 
 

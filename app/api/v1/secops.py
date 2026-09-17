@@ -84,3 +84,53 @@ async def secops_triage(req: SecurityTriageRequest) -> EventSourceResponse:
             }
 
     return EventSourceResponse(event_generator())
+
+
+# ============================================================
+# 研判多轮对话
+# ============================================================
+from fastapi import Request  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+
+from app.security import dialogue as sec_dialogue  # noqa: E402
+
+
+class DialogueRequest(BaseModel):
+    """一轮对话请求."""
+
+    message: str = Field(..., max_length=8000, description="分析师输入 (取证材料/追问/纠正)")
+
+
+@router.post("/dialogue/{session_id}", summary="研判对话 — 追加一轮 (补充证据继续研判)")
+async def secops_dialogue_turn(session_id: str, req: DialogueRequest) -> JSONResponse:
+    session = sec_dialogue.get_session(session_id)
+    if not session:
+        return JSONResponse(status_code=404, content={"detail": f"研判会话不存在: {session_id}"})
+    result = await sec_dialogue.dialogue_turn(session, req.message)
+    return {
+        "session_id": session_id,
+        "turns": len(session.turns),
+        **result,
+    }
+
+
+@router.get("/dialogue", summary="历史研判对话列表")
+async def secops_dialogue_list(limit: int = 50):
+    return {"items": sec_dialogue.list_sessions(limit)}
+
+
+@router.get("/dialogue/{session_id}", summary="研判对话详情 (含完整对话记录)")
+async def secops_dialogue_detail(session_id: str) -> JSONResponse:
+    session = sec_dialogue.get_session(session_id)
+    if not session:
+        return JSONResponse(status_code=404, content={"detail": "会话不存在"})
+    return session.to_dict()
+
+
+@router.post("/dialogue/{session_id}/close", summary="结束研判对话 (证据沉淀为经验)")
+async def secops_dialogue_close(session_id: str) -> JSONResponse:
+    session = sec_dialogue.get_session(session_id)
+    if not session:
+        return JSONResponse(status_code=404, content={"detail": "会话不存在"})
+    result = await sec_dialogue.close_session(session)
+    return {"session_id": session_id, **result}

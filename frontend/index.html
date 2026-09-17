@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css?v=20260917b">
+    <link rel="stylesheet" href="/styles.css?v=20260917c">
 </head>
 <body>
 
@@ -218,6 +218,38 @@
 
             <!-- 报告 -->
             <div id="secops-report" class="prose report-full hidden"></div>
+
+            <!-- 取证引导 (无法判定时) -->
+            <div id="secops-guidance" class="panel secops-guidance hidden">
+                <div class="panel-head">🔍 下一步取证建议 <span class="t-dim">当前证据不足, 到以下设备取证后贴回对话继续研判</span></div>
+                <div id="secops-guidance-body" class="prose secops-guidance-body"></div>
+            </div>
+
+            <!-- 研判对话 (多轮, 围绕本次告警) -->
+            <div id="secops-dialogue-wrap" class="panel secops-dialogue hidden">
+                <div class="panel-head">
+                    研判对话
+                    <span id="secops-dlg-status" class="t-dim">补充取证结果 / 追问 / 纠正判定</span>
+                    <button id="secops-dlg-close" class="link-btn" title="结束对话, 补充的证据与最终判定将沉淀为研判经验">结束并沉淀经验</button>
+                </div>
+                <div id="secops-dlg-messages" class="chat-messages scroll-pane secops-dlg-msgs"></div>
+                <div class="chat-input-row">
+                    <input id="secops-dlg-input" type="text" spellcheck="false"
+                        placeholder="粘贴取证结果 (auth.log / WAF 记录 / 情报查询) 或输入问题…" />
+                    <button id="secops-dlg-send" class="btn-primary">发送</button>
+                </div>
+            </div>
+
+            <!-- 历史研判对话 -->
+            <div class="panel secops-history-panel">
+                <div class="panel-head">
+                    历史研判对话
+                    <button id="secops-history-refresh" class="link-btn">刷新</button>
+                </div>
+                <div id="secops-history-list" class="secops-history-list scroll-pane">
+                    <span class="placeholder">暂无历史会话</span>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -295,6 +327,6 @@
     <div id="drawer-body" class="drawer-body prose scroll-pane"></div>
 </aside>
 
-<script src="/app.js?v=20260917b"></script>
+<script src="/app.js?v=20260917c"></script>
 </body>
 </html>

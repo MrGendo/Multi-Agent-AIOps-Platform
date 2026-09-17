@@ -552,6 +552,13 @@ document.getElementById("secops-start").addEventListener("click", startSecops);
 document.getElementById("secops-stop").addEventListener("click", () => {
     if (secopsAbortController) secopsAbortController.abort();
 });
+document.getElementById("secops-dlg-send").addEventListener("click", sendDialogueMsg);
+document.getElementById("secops-dlg-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.isComposing) sendDialogueMsg();
+});
+document.getElementById("secops-dlg-close").addEventListener("click", closeDialogueSession);
+document.getElementById("secops-history-refresh").addEventListener("click", loadSecopsHistory);
+loadSecopsHistory();
 document.getElementById("aiops-stop").addEventListener("click", () => {
     if (aiopsAbortController) aiopsAbortController.abort();
 });
@@ -744,9 +751,28 @@ function handleSecopsEvent(ev) {
             modeEl.textContent = MODE_LABEL[d.response_mode] || d.response_mode;
             modeEl.className = `secops-mode m-${d.response_mode}`;
         }
+    } else if (t === "followup_guidance") {
+        const gEl = document.getElementById("secops-guidance");
+        const gBody = document.getElementById("secops-guidance-body");
+        if (gEl && gBody && d.guidance_md) {
+            gBody.innerHTML = renderMarkdown(d.guidance_md);
+            gEl.classList.remove("hidden");
+        }
     } else if (t === "complete") {
         statusEl.textContent = "完成 ✓";
         if (d.verdict) setSecopsVerdict(d.verdict);
+        // 对话会话: 打开研判对话区
+        if (d.dialogue_session_id) {
+            currentDialogueId = d.dialogue_session_id;
+            const wrap = document.getElementById("secops-dialogue-wrap");
+            wrap.classList.remove("hidden");
+            const msgs = document.getElementById("secops-dlg-messages");
+            msgs.innerHTML = "";
+            appendDialogueMsg("assistant",
+                "研判完成。你可以直接粘贴取证材料（日志片段 / WAF 记录 / 情报查询结果）"
+                + (d.has_guidance ? "，或按上方「取证建议」到对应设备取证后贴回" : "")
+                + "，我会基于新证据更新判定。");
+        }
         // 域分类跳过初筛 (skip) 时补齐阶段显示
         ["scout", "analyst", "critic", "reporter"].forEach((s) => {
             const el = document.querySelector(`#secops-pipeline .secops-stage[data-stage="${s}"]`);
@@ -761,6 +787,118 @@ function handleSecopsEvent(ev) {
     if (d.mitre_techniques && d.mitre_techniques.length) {
         const el = document.getElementById("secops-mitre");
         if (el) el.innerHTML = d.mitre_techniques.map((m) => `<span class="chip mono">${escapeHtml(m)}</span>`).join("");
+    }
+}
+
+// ============================================================
+// SecOps 研判对话 (多轮)
+// ============================================================
+let currentDialogueId = null;
+
+function appendDialogueMsg(role, content, extra = "") {
+    const msgs = document.getElementById("secops-dlg-messages");
+    if (!msgs) return;
+    const div = document.createElement("div");
+    div.className = `msg msg-${role === "user" ? "user" : "ai"}`;
+    div.innerHTML = `<div class="msg-content">${escapeHtml(content).replace(/\n/g, "<br>")}${extra}</div>`;
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+}
+
+async function sendDialogueMsg() {
+    const input = document.getElementById("secops-dlg-input");
+    const text = input.value.trim();
+    if (!text || !currentDialogueId) return;
+    input.value = "";
+    appendDialogueMsg("user", text);
+    const statusEl = document.getElementById("secops-dlg-status");
+    statusEl.textContent = "研判中…";
+
+    try {
+        const resp = await fetch(`${API}/secops/dialogue/${currentDialogueId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: text }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+        const badge = data.verdict_changed
+            ? `<div class="dlg-verdict-changed">判定更新: ${VERDICT_LABEL[data.verdict]?.text || data.verdict} · 置信度 ${(data.confidence * 100).toFixed(0)}%</div>`
+            : "";
+        const ev = (data.evidence_used || []).length
+            ? `<div class="dlg-evidence">引用证据: ${data.evidence_used.map(escapeHtml).join(" · ")}</div>` : "";
+        const next = (data.next_steps || []).length && data.needs_more_evidence
+            ? `<div class="dlg-next">下一步: ${data.next_steps.map(escapeHtml).join("；")}</div>` : "";
+        appendDialogueMsg("assistant", data.reply, badge + ev + next);
+        if (data.verdict_changed) {
+            setSecopsVerdict(data.verdict, data.confidence);
+        }
+        statusEl.textContent = "就绪";
+    } catch (e) {
+        appendDialogueMsg("assistant", `发送失败: ${e.message}`);
+        statusEl.textContent = "失败";
+    }
+}
+
+async function closeDialogueSession() {
+    if (!currentDialogueId) return;
+    if (!confirm("结束对话并把补充证据与最终判定沉淀为研判经验?")) return;
+    try {
+        const resp = await fetch(`${API}/secops/dialogue/${currentDialogueId}/close`, { method: "POST" });
+        const data = await resp.json();
+        const msg = data.consolidated
+            ? "已沉淀为研判经验, 同类告警下次研判将自动参考。"
+            : `未沉淀 (${data.reason || "无补充证据"})。`;
+        appendDialogueMsg("assistant", `会话结束。${msg}`);
+        loadSecopsHistory();
+    } catch (e) {
+        appendDialogueMsg("assistant", `结束失败: ${e.message}`);
+    }
+}
+
+async function loadSecopsHistory() {
+    const list = document.getElementById("secops-history-list");
+    if (!list) return;
+    try {
+        const resp = await fetch(`${API}/secops/dialogue?limit=20`);
+        const data = await resp.json();
+        const items = data.items || [];
+        if (!items.length) {
+            list.innerHTML = '<span class="placeholder">暂无历史会话</span>';
+            return;
+        }
+        list.innerHTML = items.map((it) => {
+            const v = VERDICT_LABEL[it.verdict]?.text || it.verdict || "—";
+            const time = new Date((it.updated_at || 0) * 1000).toLocaleString("zh-CN", { hour12: false });
+            return `<div class="history-item" data-sid="${escapeHtml(it.session_id)}">
+                <span class="h-verdict">${escapeHtml(v)}</span>
+                <span class="h-alert truncate">${escapeHtml(it.alert_text || "")}</span>
+                <span class="h-meta">${it.turns} 轮 · ${escapeHtml(time)}</span>
+            </div>`;
+        }).join("");
+        list.querySelectorAll(".history-item").forEach((el) => {
+            el.addEventListener("click", () => openHistoryDialogue(el.dataset.sid));
+        });
+    } catch (e) {
+        list.innerHTML = `<span class="placeholder">加载失败: ${escapeHtml(e.message)}</span>`;
+    }
+}
+
+async function openHistoryDialogue(sid) {
+    try {
+        const resp = await fetch(`${API}/secops/dialogue/${sid}`);
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || "load failed");
+        currentDialogueId = sid;
+        document.getElementById("secops-dialogue-wrap").classList.remove("hidden");
+        const msgs = document.getElementById("secops-dlg-messages");
+        msgs.innerHTML = "";
+        appendDialogueMsg("assistant", `历史会话恢复。原判定: ${VERDICT_LABEL[data.verdict]?.text || data.verdict}\n告警: ${data.alert_text?.slice(0, 200)}`);
+        (data.turns || []).forEach((t) => appendDialogueMsg(t.role, t.content));
+        setSecopsVerdict(data.verdict);
+        document.getElementById("secops-dialogue-wrap").scrollIntoView({ behavior: "smooth" });
+    } catch (e) {
+        alert(`打开会话失败: ${e.message}`);
     }
 }
 

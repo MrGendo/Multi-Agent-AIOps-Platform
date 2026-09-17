@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -30,6 +30,8 @@ from app.config import settings
 from app.core.metrics import record_alert_deduplicated, record_alert_received
 from app.db.persistence import persistence
 from app.db.models import RunStatus
+from app.exceptions import AppException
+from app.security.device_adapters import detect_and_normalize
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 
@@ -385,12 +387,39 @@ async def alertmanager_webhook(
     ),
 )
 async def security_webhook(
-    payload: SecurityAlertPayload,
+    request: Request,
     background: BackgroundTasks,
 ):
-    """安全告警统一入口 (后台研判, 与 Alertmanager 路径同构)."""
+    """安全告警统一入口 (后台研判, 与 Alertmanager 路径同构).
+
+    自动识别原生格式: Wazuh ({"alert":{...}}/裸 alert dict) / Suricata EVE
+    ({"event_type":"alert"}) / Falco ({"rule","output","priority"}) 自动归一化;
+    未识别结构走通用 SecurityAlertPayload schema.
+    """
+    raw: Dict[str, Any] = {}
+    normalized: Optional[SecurityAlertPayload] = None
+    try:
+        raw = await request.json()
+        normalized = detect_and_normalize(raw)
+    except Exception:
+        pass
+
+    if normalized is None:
+        # 未识别的设备格式 -> 走通用 schema 校验
+        try:
+            normalized = SecurityAlertPayload(**raw)
+        except Exception as exc:
+            raise AppException(
+                code="INVALID_SECURITY_PAYLOAD",
+                message="无法识别的安全告警格式且不满足通用 schema",
+                detail=f"{type(exc).__name__}: {exc}",
+            ) from exc
+
+    payload = normalized
+    detected = f"native-{payload.source}" if raw else "generic"
     text = _format_security_alert_as_query(payload)
     session_id = f"security-{payload.source}-{payload.fingerprint or payload.rule[:24]}"
+    logger.info(f"[webhook] 安全告警格式识别: {detected}")
     alert_meta = {
         "kind": "security",
         "source": payload.source,
