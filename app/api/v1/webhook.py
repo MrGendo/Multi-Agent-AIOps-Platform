@@ -206,7 +206,84 @@ async def _run_diagnosis_background(
 
 
 # ============================================================
-# \u8def\u7531
+# 安全设备告警 payload (Wazuh/Suricata/Falco 风格通用 schema)
+# ============================================================
+class SecurityAlertPayload(BaseModel):
+    """安全设备 webhook 单条告警."""
+
+    source: str = Field(default="generic", description="告警来源: wazuh/suricata/falco/generic")
+    severity: str = Field(default="MEDIUM", description="严重度 LOW/MEDIUM/HIGH/CRITICAL")
+    rule: str = Field(default="", description="规则名/检测名, 如 SSH brute force")
+    description: str = Field(default="", description="告警描述 (含 IOC 更佳)")
+    src_ip: str = Field(default="", description="源 IP")
+    dst_ip: str = Field(default="", description="目标 IP")
+    agent: str = Field(default="", description="上报主机/Agent 名")
+    fingerprint: str = Field(default="", description="告警指纹 (去重用, 可空)")
+
+
+def _format_security_alert_as_query(alert: SecurityAlertPayload) -> str:
+    """把安全设备告警渲染成统一入口可读的告警文本."""
+    parts = [f"[{alert.severity.upper()}] 安全告警 ({alert.source}): {alert.rule or '未命名规则'}"]
+    if alert.src_ip:
+        parts.append(f"源 IP: {alert.src_ip}")
+    if alert.dst_ip:
+        parts.append(f"目标 IP: {alert.dst_ip}")
+    if alert.agent:
+        parts.append(f"主机: {alert.agent}")
+    if alert.description:
+        parts.append(f"描述: {alert.description}")
+    parts.append("请研判该安全告警的真实性与风险。")
+    return "\n".join(parts)
+
+
+async def _run_triage_background(
+    query: str, session_id: str, alert_meta: Dict[str, Any]
+) -> None:
+    """后台跑 SecOps 统一入口 stream_triage, 事件流落盘 (与诊断后台任务同构)."""
+    from app.security.service import stream_triage
+
+    started_at = datetime.now(timezone.utc).isoformat()
+    events: List[Dict[str, Any]] = []
+    final_report = ""
+    verdict = ""
+    error_msg = ""
+
+    logger.info(f"[webhook] 后台启动安全研判 session={session_id} source={alert_meta.get('source')}")
+
+    try:
+        async for ev in stream_triage(query, session_id=session_id):
+            events.append(ev)
+            etype = ev.get("type", "")
+            data = ev.get("data", {}) or {}
+            if etype == "report":
+                final_report = data.get("report", "") or final_report
+                verdict = data.get("verdict", "") or verdict
+            elif etype == "error":
+                error_msg = ev.get("message", "")
+    except Exception as e:
+        error_msg = f"{type(e).__name__}: {e}"
+        logger.exception(f"[webhook] 安全研判异常: {e}")
+
+    record = {
+        "session_id": session_id,
+        "alert": alert_meta,
+        "query": query,
+        "started_at": started_at,
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+        "verdict": verdict,
+        "report": final_report,
+        "event_count": len(events),
+        "error": error_msg,
+    }
+    _append_history(record)
+    logger.info(
+        f"[webhook] 安全研判完成 session={session_id} verdict={verdict or '(无)'} "
+        f"events={len(events)} report_len={len(final_report)}"
+    )
+
+
+# ============================================================
+# 路由
 # ============================================================
 @router.post(
     "/alertmanager",
@@ -295,6 +372,46 @@ async def alertmanager_webhook(
         "received": len(payload.alerts),
         "triggered": triggered,
         "skipped": skipped,
+    }
+
+
+@router.post(
+    "/security",
+    summary="安全设备告警接收 (Wazuh/Suricata/Falco 风格, 全自动研判)",
+    description=(
+        "接收安全设备 webhook payload, 渲染成告警文本后走统一事件入口: "
+        "域分类 → security 域进 SecOps 研判子图 (Triage→Scout→Analyst→Critic→Reporter), "
+        "ops 域自动转投 AIOps 诊断. 立即返回 202, 研判后台跑, 结果写入 data/alert_history.jsonl."
+    ),
+)
+async def security_webhook(
+    payload: SecurityAlertPayload,
+    background: BackgroundTasks,
+):
+    """安全告警统一入口 (后台研判, 与 Alertmanager 路径同构)."""
+    text = _format_security_alert_as_query(payload)
+    session_id = f"security-{payload.source}-{payload.fingerprint or payload.rule[:24]}"
+    alert_meta = {
+        "kind": "security",
+        "source": payload.source,
+        "severity": payload.severity,
+        "rule": payload.rule,
+        "fingerprint": payload.fingerprint,
+        "description": payload.description[:200],
+    }
+    record_alert_received(payload.rule or "security_alert")
+    background.add_task(
+        _run_triage_background, text, session_id, alert_meta
+    )
+    logger.info(
+        f"[webhook] 安全告警接入 source={payload.source} rule={payload.rule[:60]} "
+        f"session={session_id}"
+    )
+    return {
+        "status": "accepted",
+        "received": 1,
+        "triggered": [session_id],
+        "skipped": [],
     }
 
 
