@@ -275,15 +275,18 @@ body {
 .steps-lane-cards .step-item { flex: 0 0 230px; min-width: 0; }
 .aiops-results { display: flex; flex-direction: column; min-width: 0; }
 .field-label { display: block; font-size: 12.5px; font-weight: 510; color: var(--text-2); margin-bottom: 7px; }
-#aiops-query {
+#aiops-query,
+#secops-query {
     width: 100%; resize: vertical; padding: 10px 12px; font-size: 13px;
     font-family: var(--mono); color: var(--text-1);
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid var(--border); border-radius: 8px; outline: none;
     transition: border-color .15s;
 }
-#aiops-query:focus { border-color: rgba(113, 112, 255, 0.55); }
-#aiops-query::placeholder { color: var(--text-4); }
+#aiops-query:focus,
+#secops-query:focus { border-color: rgba(113, 112, 255, 0.55); }
+#aiops-query::placeholder,
+#secops-query::placeholder { color: var(--text-4); }
 
 .btn-row { display: flex; gap: 8px; margin: 10px 0 4px; }
 .btn-primary {
