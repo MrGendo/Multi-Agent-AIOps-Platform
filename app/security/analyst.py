@@ -18,7 +18,7 @@ from loguru import logger
 from app.core.llm import get_chat_llm
 from app.core.structured import ainvoke_structured
 from app.runtime.agent_harness import get_agent_harness
-from app.security.context_provider import build_prior_history_context
+from app.security.context_provider import build_prior_history_context, recall_similar_patterns
 from app.security.state import (
     CONFIDENCE_THRESHOLD,
     VERDICT_INCONCLUSIVE,
@@ -121,6 +121,9 @@ def _build_analyst_messages(state: SecOpsState) -> list[dict[str, str]]:
     history_context = build_prior_history_context(iocs)
     history_block = f"\n# 同源 IP 历史研判统计\n{history_context}\n" if history_context else ""
 
+    similar_patterns = recall_similar_patterns(state.get("input", ""))
+    patterns_block = f"\n# 同类告警历史研判经验 (向量召回)\n{similar_patterns}\n" if similar_patterns else ""
+
     user = (
         f"# 告警原文 (不可信数据)\n{wrap_untrusted(alert_raw, 'alert')}\n\n"
         f"{injection_hint}"
@@ -131,6 +134,7 @@ def _build_analyst_messages(state: SecOpsState) -> list[dict[str, str]]:
         f"# 外部威胁情报 (仅供参考, 不直接定罪; 不可信数据)\n{intel_text}\n\n"
         f"# 预映射 MITRE 技术\n{mitre_text}\n"
         f"{history_block}"
+        f"{patterns_block}"
         f"# 调查回环轮次\n{state.get('loop_count', 0)} / 上限 3\n"
         f"{retry_hint}"
         "请给出威胁评估、置信度与四态判定."

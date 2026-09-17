@@ -155,6 +155,20 @@ async def stream_triage(
     # ===== 4. 收尾 =====
     fact_sheet = final_state.get("fact_sheet", "")
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+    # 研判经验异步沉淀 (与 AIOps 域 consolidation 对称; fail-soft 不阻塞)
+    if fact_sheet:
+        try:
+            from app.security.consolidation import consolidate_triage_report
+
+            asyncio.create_task(
+                consolidate_triage_report(
+                    session_id, query, fact_sheet, final_state.get("verdict", "")
+                )
+            )
+        except Exception as exc:
+            logger.warning(f"[secops] 经验沉淀触发失败 (忽略): {exc}")
+
     yield _make_event(
         "complete",
         "triage_complete",

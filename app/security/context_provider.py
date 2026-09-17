@@ -18,6 +18,13 @@ from typing import Any, Dict, List
 
 from loguru import logger
 
+from app.security.consolidation import SECOPS_EXP_SOURCE
+
+try:
+    from app.core.vector_store import get_vector_store
+except Exception:  # 演示环境无 Milvus 时导入即降级
+    get_vector_store = None  # type: ignore[assignment]
+
 # 历史文件位置 (与 webhook 落盘同源)
 _HISTORY_FILE = Path(__file__).resolve().parents[2] / "data" / "alert_history.jsonl"
 
@@ -47,6 +54,38 @@ def _load_security_history() -> List[Dict[str, Any]]:
     except Exception as exc:
         logger.debug(f"[SecContext] 研判历史读取失败 (fail-soft): {exc}")
         return []
+
+
+def recall_similar_patterns(query: str, k: int = 2) -> str:
+    """向量召回同类告警的历史研判经验 (source=secops_experience), fail-soft.
+
+    返回格式化的经验块供 Analyst 参考; 无库/无命中/异常 → 空串.
+    纪律同 build_prior_history_context: 召回结果是「当时证据下的结论」,
+    不是本次定罪依据.
+    """
+    try:
+        if get_vector_store is None:
+            return ""
+        vs = get_vector_store()
+        docs = vs.similarity_search(query, k=k, expr=f"source == '{SECOPS_EXP_SOURCE}'")
+        if not docs:
+            return ""
+        blocks = []
+        for d in docs:
+            title = (d.metadata or {}).get("h1") or "历史研判"
+            verdict = (d.metadata or {}).get("verdict") or ""
+            verdict_tag = f" [当时判定: {verdict}]" if verdict else ""
+            blocks.append(f"- {title}{verdict_tag}: {d.page_content[:300]}")
+        logger.info(f"[SecContext] 经验召回命中 {len(docs)} 条同类研判 (供 Analyst 参考)")
+        return (
+            "**SIMILAR THREAT PATTERNS (向量召回的历史研判经验, 仅供参考):**\n"
+            + "\n".join(blocks)
+            + "\n纪律: 这些是历史告警在当时证据下的结论, 不是本次告警的证据 — "
+            "可参考其判定逻辑与关注点, 不得直接复用其 verdict."
+        )
+    except Exception as exc:
+        logger.debug(f"[SecContext] 经验召回失败 (fail-soft): {exc}")
+        return ""
 
 
 def build_prior_history_context(iocs: Dict[str, List[str]]) -> str:
