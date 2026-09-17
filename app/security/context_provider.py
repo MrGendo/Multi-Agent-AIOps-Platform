@@ -25,6 +25,31 @@ try:
 except Exception:  # 演示环境无 Milvus 时导入即降级
     get_vector_store = None  # type: ignore[assignment]
 
+MITRE_SOURCE = "mitre_attack"
+
+# 常用技术的英文名查询提示 (提升向量相似度命中; 未列出的 tid 走通用查询词)
+_QUERY_HINTS = {
+    "T1110": "Brute Force password guessing",
+    "T1110.001": "Password Guessing",
+    "T1110.003": "Password Spraying",
+    "T1566": "Phishing",
+    "T1566.001": "Spearphishing Attachment",
+    "T1566.002": "Spearphishing Link",
+    "T1190": "Exploit Public-Facing Application",
+    "T1046": "Network Service Discovery scanning",
+    "T1041": "Exfiltration Over C2 Channel",
+    "T1548": "Abuse Elevation Control Mechanism",
+    "T1068": "Exploitation for Privilege Escalation",
+    "T1204": "User Execution",
+    "T1583": "Acquire Infrastructure",
+    "T1059": "Command and Scripting Interpreter",
+    "T1071": "Application Layer Protocol C2",
+}
+
+
+def _query_hint(tid: str) -> str:
+    return _QUERY_HINTS.get(tid, "attack technique detection mitigation")
+
 # 历史文件位置 (与 webhook 落盘同源)
 _HISTORY_FILE = Path(__file__).resolve().parents[2] / "data" / "alert_history.jsonl"
 
@@ -85,6 +110,55 @@ def recall_similar_patterns(query: str, k: int = 2) -> str:
         )
     except Exception as exc:
         logger.debug(f"[SecContext] 经验召回失败 (fail-soft): {exc}")
+        return ""
+
+
+def recall_mitre_details(technique_ids: List[str], k_per_tech: int = 4) -> str:
+    """按 MITRE 技术 ID 检索知识库中的技术详情 (source=mitre_attack), fail-soft.
+
+    让 Analyst 拿到官方检测建议/缓解措施上下文, 而不是裸 ID 列表.
+    k_per_tech=4: 每技术按章节切分约 5-7 chunks (标题/战术/描述/检测/缓解),
+    取 4 保证覆盖检测建议与缓解措施段.
+    """
+    if not technique_ids:
+        return ""
+    try:
+        if get_vector_store is None:
+            return ""
+        vs = get_vector_store()
+        blocks = []
+        for tid in technique_ids[:6]:  # 上限 6 个技术防 prompt 膨胀
+            docs: list = []
+            # 注意: collection schema 由历史首批语料建表, 无 tid 字段
+            # (新元数据键被 milvus 静默丢弃), 不能用 expr 按 tid 过滤 —
+            # 统一走 source 过滤 + 客户端按 chunk 开头 "# {tid} " 精确匹配
+            try:
+                # chunk 正文带 "[章/节] " 前缀 (splitter 注入), 首块形如
+                # "[T1110 Brute Force / 战术] # T1110 Brute Force..."
+                # 用 metadata.chapter 前缀 (== tid + 空格 + 技术名) 精确定位
+                candidates = vs.similarity_search(
+                    f"{tid} {_query_hint(tid)}",
+                    k=30,
+                    expr=f"source == '{MITRE_SOURCE}'",
+                )
+                docs = [
+                    d for d in candidates
+                    if str((d.metadata or {}).get("chapter") or "").startswith(f"{tid} ")
+                ][:k_per_tech]
+            except Exception:
+                docs = []
+            for d in docs:
+                content = d.page_content.strip()
+                # 截到检测建议+缓解 (描述太长, 检测/缓解才是研判要的)
+                blocks.append(f"- {content[:600]}")
+        if not blocks:
+            return ""
+        return (
+            "**MITRE ATT&CK 技术详情 (知识库检索, 官方检测/缓解参考):**\n"
+            + "\n".join(blocks)
+        )
+    except Exception as exc:
+        logger.debug(f"[SecContext] MITRE 详情检索失败 (fail-soft): {exc}")
         return ""
 
 
