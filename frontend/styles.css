@@ -701,3 +701,89 @@ body {
     .drawer-overlay { transition: opacity .18s ease-out; }
     .skill-card:hover { transform: none; }
 }
+
+/* ============ SecOps 安全研判 tab ============ */
+.secops-wrap { display: flex; flex-direction: column; gap: 16px; }
+
+.secops-midrow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 16px;
+    align-items: start;
+}
+
+/* 五阶段流水 */
+.secops-pipeline {
+    display: flex;
+    gap: 8px;
+    padding: 14px 16px 10px;
+    overflow-x: auto;
+}
+.secops-stage {
+    flex: 1 1 0;
+    min-width: 120px;
+    border: 1px solid var(--border, rgba(255,255,255,.08));
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: var(--card-bg, transparent);
+    transition: border-color .2s var(--ease-out), background .2s var(--ease-out);
+}
+.secops-stage .stage-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-dim, rgba(255,255,255,.3));
+    margin-bottom: 8px;
+    transition: background .2s var(--ease-out);
+}
+.secops-stage .stage-name { font-size: 13px; font-weight: 600; }
+.secops-stage .stage-detail { font-size: 11px; color: var(--text-dim, rgba(255,255,255,.45)); margin-top: 3px; line-height: 1.5; }
+.secops-stage.st-active { border-color: var(--accent); }
+.secops-stage.st-active .stage-dot { background: var(--accent); animation: secops-pulse 1.2s ease-in-out infinite; }
+.secops-stage.st-done { border-color: var(--green); }
+.secops-stage.st-done .stage-dot { background: var(--green); }
+.secops-stage.st-skip { opacity: .45; }
+.secops-stage.st-skip .stage-dot { background: var(--text-dim, rgba(255,255,255,.2)); }
+@keyframes secops-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* 发现流水 */
+.secops-findings { max-height: 180px; overflow-y: auto; padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 6px; }
+.finding-row { font-size: 12.5px; line-height: 1.6; color: var(--text, inherit); }
+.f-tag {
+    display: inline-block; font-size: 10.5px; font-weight: 600;
+    padding: 1px 7px; border-radius: 5px; margin-right: 6px;
+    background: var(--accent); color: #fff;
+}
+.f-tag.tag-domain { background: var(--accent); }
+.f-tag.tag-triage { background: var(--amber); color: #fff; }
+.f-tag.tag-scout { background: var(--accent); }
+.f-tag.tag-analyst { background: var(--red); color: #fff; }
+.f-tag.tag-critic { background: var(--green); color: #fff; }
+.f-tag.tag-error { background: var(--red); color: #fff; }
+
+/* 右侧判定面板 */
+.secops-verdict-block { padding: 4px 16px 16px; }
+.secops-verdict {
+    font-size: 22px; font-weight: 700; margin: 2px 0 0;
+    transition: color .2s var(--ease-out);
+}
+.secops-verdict.v-benign { color: var(--green); }
+.secops-verdict.v-suspicious { color: var(--amber); }
+.secops-verdict.v-malicious { color: var(--red); }
+.secops-verdict.v-inconclusive { color: var(--text-dim, inherit); }
+.secops-mode {
+    display: inline-block; font-size: 13px; font-weight: 600;
+    padding: 3px 10px; border-radius: 6px; margin-top: 2px;
+    border: 1px solid var(--border, rgba(255,255,255,.12));
+}
+.secops-mode.m-observe { color: var(--green); border-color: var(--green); }
+.secops-mode.m-recommend { color: var(--amber); border-color: var(--amber); }
+.secops-mode.m-human_approval { color: var(--red); border-color: var(--red); }
+.secops-iocs { font-size: 11.5px; line-height: 1.8; margin-top: 4px; word-break: break-all; }
+.ioc-line .ioc-kind {
+    display: inline-block; min-width: 52px;
+    color: var(--text-dim, rgba(255,255,255,.45));
+    text-transform: uppercase; font-size: 10px; letter-spacing: .04em;
+}
+
+@media (max-width: 1000px) {
+    .secops-midrow { grid-template-columns: 1fr; }
+}

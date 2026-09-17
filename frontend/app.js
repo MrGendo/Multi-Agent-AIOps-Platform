@@ -548,6 +548,10 @@ function renderTrace() {
 }
 
 document.getElementById("aiops-start").addEventListener("click", startAiops);
+document.getElementById("secops-start").addEventListener("click", startSecops);
+document.getElementById("secops-stop").addEventListener("click", () => {
+    if (secopsAbortController) secopsAbortController.abort();
+});
 document.getElementById("aiops-stop").addEventListener("click", () => {
     if (aiopsAbortController) aiopsAbortController.abort();
 });
@@ -619,6 +623,197 @@ function showAiopsMonitor() {
     document.getElementById("aiops-monitor").classList.remove("hidden");
     document.getElementById("aiops-report").classList.add("hidden");
     setText("aiops-right-title", "📊 诊断监控");
+}
+
+// ============================================================
+// SecOps 安全研判 tab
+// ============================================================
+let secopsAbortController = null;
+
+const VERDICT_LABEL = {
+    benign: { text: "良性 / 误报", cls: "v-benign" },
+    suspicious: { text: "可疑", cls: "v-suspicious" },
+    malicious: { text: "恶意", cls: "v-malicious" },
+    inconclusive: { text: "证据不足", cls: "v-inconclusive" },
+};
+const MODE_LABEL = {
+    observe: "仅观察",
+    recommend: "建议处置",
+    human_approval: "需人工审批",
+};
+
+function secopsStage(name, state) {
+    const el = document.querySelector(`#secops-pipeline .secops-stage[data-stage="${name}"]`);
+    if (!el) return;
+    el.classList.remove("st-active", "st-done", "st-skip");
+    if (state) el.classList.add(`st-${state}`);
+}
+
+function secopsFinding(html) {
+    const el = document.getElementById("secops-findings");
+    if (!el) return;
+    const row = document.createElement("div");
+    row.className = "finding-row";
+    row.innerHTML = html;
+    el.appendChild(row);
+    el.scrollTop = el.scrollHeight;
+}
+
+function renderSecopsIocs(iocs) {
+    const el = document.getElementById("secops-iocs");
+    if (!el) return;
+    const parts = [];
+    for (const [kind, values] of Object.entries(iocs || {})) {
+        if (Array.isArray(values) && values.length) {
+            parts.push(`<div class="ioc-line"><span class="ioc-kind">${escapeHtml(kind)}</span> ${values.map(escapeHtml).join(" · ")}</div>`);
+        }
+    }
+    el.innerHTML = parts.join("") || '<div class="t-dim">（无）</div>';
+}
+
+function setSecopsVerdict(verdict, confidence) {
+    const el = document.getElementById("secops-verdict");
+    const confEl = document.getElementById("secops-confidence");
+    if (!el) return;
+    const meta = VERDICT_LABEL[verdict];
+    if (meta) {
+        el.textContent = meta.text;
+        el.className = `secops-verdict ${meta.cls}`;
+    } else if (verdict) {
+        el.textContent = verdict;
+        el.className = "secops-verdict";
+    }
+    if (confEl) {
+        confEl.textContent = (typeof confidence === "number" && confidence > 0)
+            ? `置信度 ${(confidence * 100).toFixed(0)}%` : "";
+    }
+}
+
+function handleSecopsEvent(ev) {
+    const t = ev.type;
+    const d = ev.data || {};
+    console.log("[SecOps SSE]", t, d);
+    const statusEl = document.getElementById("secops-status");
+
+    if (t === "start") {
+        statusEl.textContent = "域分类中…";
+    } else if (t === "domain_classified") {
+        const isSec = d.domain === "security";
+        statusEl.textContent = isSec ? "安全域 · 研判中…" : "运维域 · 转投诊断…";
+        secopsFinding(`<span class="f-tag tag-domain">分流</span> ${isSec
+            ? `判定为<b>安全事件</b> → SecOps 研判流水 <span class="t-dim">(${escapeHtml(d.reason || "")})</span>`
+            : `判定为<b>运维事件</b> → 自动转投 AIOps 诊断 <span class="t-dim">(${escapeHtml(d.reason || "")})</span>`}`);
+    } else if (t === "triage") {
+        secopsStage("triage", "done");
+        statusEl.textContent = "取证中…";
+        secopsStage("scout", "active");
+        secopsFinding(`<span class="f-tag tag-triage">Triage</span> ${escapeHtml(d.alert_type || "unknown")} · 初判 <b>${escapeHtml(d.severity || "?")}</b> <span class="t-dim">${escapeHtml(d.reason || "")}</span>`);
+    } else if (t === "scout" || t === "scout_step") {
+        secopsStage("scout", "done");
+        statusEl.textContent = "研判分析中…";
+        secopsStage("analyst", "active");
+        const iocs = d.iocs || {};
+        const counts = ["ips", "hashes", "domains", "cves"].map((k) => `${(iocs[k] || []).length} ${k}`).join(" · ");
+        secopsFinding(`<span class="f-tag tag-scout">Scout</span> IOC: ${counts} · 异常分 <b>${d.anomaly_score ?? "—"}</b>${d.intel_snippets ? "" : ""}`);
+        renderSecopsIocs(iocs);
+    } else if (t === "analyst") {
+        secopsStage("analyst", "done");
+        statusEl.textContent = "审计中…";
+        secopsStage("critic", "active");
+        setSecopsVerdict(d.verdict, d.confidence);
+        secopsFinding(`<span class="f-tag tag-analyst">Analyst</span> 判定 <b>${VERDICT_LABEL[d.verdict]?.text || d.verdict || "?"}</b> · 置信度 ${typeof d.confidence === "number" ? (d.confidence * 100).toFixed(0) + "%" : "—"} <span class="t-dim">${escapeHtml((d.assessment || "").slice(0, 120))}…</span>`);
+    } else if (t === "critic") {
+        secopsStage("critic", d.stage === "critic_rejected" ? "active" : "done");
+        if (d.stage === "critic_rejected") {
+            secopsFinding(`<span class="f-tag tag-critic">Critic</span> <b>驳回</b>: 证据与结论不匹配, 要求重研判 <span class="t-dim">${escapeHtml(d.feedback || "")}</span>`);
+            secopsStage("analyst", "active");
+        } else {
+            secopsFinding(`<span class="f-tag tag-critic">Critic</span> 审计通过`);
+            statusEl.textContent = "生成报告…";
+            secopsStage("reporter", "active");
+        }
+    } else if (t === "report") {
+        secopsStage("reporter", "done");
+        statusEl.textContent = "完成 ✓";
+        const repEl = document.getElementById("secops-report");
+        repEl.classList.remove("hidden");
+        repEl.innerHTML = renderMarkdown(d.report || "");
+        if (d.verdict) setSecopsVerdict(d.verdict);
+        const modeEl = document.getElementById("secops-mode");
+        if (modeEl && d.response_mode) {
+            modeEl.textContent = MODE_LABEL[d.response_mode] || d.response_mode;
+            modeEl.className = `secops-mode m-${d.response_mode}`;
+        }
+    } else if (t === "complete") {
+        statusEl.textContent = "完成 ✓";
+        if (d.verdict) setSecopsVerdict(d.verdict);
+        // 域分类跳过初筛 (skip) 时补齐阶段显示
+        ["scout", "analyst", "critic", "reporter"].forEach((s) => {
+            const el = document.querySelector(`#secops-pipeline .secops-stage[data-stage="${s}"]`);
+            if (el && !el.classList.contains("st-done")) el.classList.add("st-skip");
+        });
+    } else if (t === "error") {
+        statusEl.textContent = "失败 ✗";
+        secopsFinding(`<span class="f-tag tag-error">错误</span> ${escapeHtml(ev.message || "")}`);
+    }
+
+    // MITRE chips (analyst/report 数据里可能带)
+    if (d.mitre_techniques && d.mitre_techniques.length) {
+        const el = document.getElementById("secops-mitre");
+        if (el) el.innerHTML = d.mitre_techniques.map((m) => `<span class="chip mono">${escapeHtml(m)}</span>`).join("");
+    }
+}
+
+async function startSecops() {
+    const query = document.getElementById("secops-query").value.trim();
+    if (!query) return alert("请输入安全告警内容");
+    if (secopsAbortController) return;
+
+    const statusEl = document.getElementById("secops-status");
+    const findingsEl = document.getElementById("secops-findings");
+    const repEl = document.getElementById("secops-report");
+    // UI reset
+    findingsEl.innerHTML = "";
+    repEl.innerHTML = "";
+    repEl.classList.add("hidden");
+    document.querySelectorAll("#secops-pipeline .secops-stage").forEach((el) => el.classList.remove("st-active", "st-done", "st-skip"));
+    secopsStage("triage", "active");
+    setSecopsVerdict("", 0);
+    document.getElementById("secops-verdict").textContent = "—";
+    document.getElementById("secops-verdict").className = "secops-verdict";
+    document.getElementById("secops-confidence").textContent = "等待研判";
+    document.getElementById("secops-mode").textContent = "—";
+    document.getElementById("secops-mode").className = "secops-mode";
+    document.getElementById("secops-mitre").innerHTML = "";
+    document.getElementById("secops-iocs").innerHTML = "";
+    statusEl.textContent = "研判启动…";
+
+    document.getElementById("secops-start").disabled = true;
+    document.getElementById("secops-stop").disabled = false;
+
+    secopsAbortController = new AbortController();
+    const sessionId = `secops-web-${Date.now()}`;
+    try {
+        const resp = await fetch(`${API}/secops/triage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: sessionId, query }),
+            signal: secopsAbortController.signal,
+        });
+        await consumeSSE(resp, handleSecopsEvent);
+        if (statusEl.textContent !== "完成 ✓") statusEl.textContent = "完成 ✓";
+    } catch (e) {
+        if (e.name === "AbortError") {
+            statusEl.textContent = "已停止";
+        } else {
+            statusEl.textContent = "失败 ✗";
+            secopsFinding(`<span class="f-tag tag-error">错误</span> ${escapeHtml(e.message)}`);
+        }
+    } finally {
+        document.getElementById("secops-start").disabled = false;
+        document.getElementById("secops-stop").disabled = true;
+        secopsAbortController = null;
+    }
 }
 
 async function startAiops() {

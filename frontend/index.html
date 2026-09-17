@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css?v=20260908b">
+    <link rel="stylesheet" href="/styles.css?v=20260917a">
 </head>
 <body>
 
@@ -42,6 +42,7 @@
 <div class="tabs-wrap">
     <nav class="tabs">
         <button data-tab="aiops"     class="tab-btn tab-active">诊断</button>
+        <button data-tab="secops"    class="tab-btn">安全研判</button>
         <button data-tab="chat"      class="tab-btn">RAG 聊天</button>
         <button data-tab="documents" class="tab-btn">知识库</button>
     </nav>
@@ -153,6 +154,73 @@
         </div>
     </section>
 
+    <!-- ====================== SecOps Tab ====================== -->
+    <section id="tab-secops" class="tab-pane hidden">
+        <div class="secops-wrap">
+            <!-- 告警输入 -->
+            <div class="aiops-inputrow">
+                <textarea id="secops-query" rows="2" spellcheck="false"
+                    placeholder="粘贴安全告警: IDS/WAF 事件、可疑行为描述、攻击线索 (IP/hash/域名/CVE 会自动提取为 IOC)…">SSH 暴力破解告警: 来自 203.0.113.42, 10 次失败登录, 目标主机 10.0.0.5 prod-web-01</textarea>
+                <div class="btn-row btn-row-inline">
+                    <button id="secops-start" class="btn-primary">开始研判</button>
+                    <button id="secops-stop" class="btn-ghost" disabled>停止</button>
+                </div>
+            </div>
+
+            <!-- 五阶段流水 + 关键指标 -->
+            <div class="secops-midrow">
+                <div class="panel secops-pipeline-panel">
+                    <div class="panel-head">研判流水 <span id="secops-status" class="status-chip mono">未开始</span></div>
+                    <div id="secops-pipeline" class="secops-pipeline">
+                        <div class="secops-stage" data-stage="triage">
+                            <div class="stage-dot"></div>
+                            <div class="stage-name">Triage 初筛</div>
+                            <div class="stage-detail">告警分类 · 严重度 · 是否深查</div>
+                        </div>
+                        <div class="secops-stage" data-stage="scout">
+                            <div class="stage-dot"></div>
+                            <div class="stage-name">Scout 取证</div>
+                            <div class="stage-detail">IOC 提取 · 异常分 · 情报富化</div>
+                        </div>
+                        <div class="secops-stage" data-stage="analyst">
+                            <div class="stage-dot"></div>
+                            <div class="stage-name">Analyst 研判</div>
+                            <div class="stage-detail">四态判定 · 置信度 · MITRE</div>
+                        </div>
+                        <div class="secops-stage" data-stage="critic">
+                            <div class="stage-dot"></div>
+                            <div class="stage-name">Critic 审计</div>
+                            <div class="stage-detail">证据-结论匹配 · 防幻觉</div>
+                        </div>
+                        <div class="secops-stage" data-stage="reporter">
+                            <div class="stage-dot"></div>
+                            <div class="stage-name">Reporter 报告</div>
+                            <div class="stage-detail">FactSheet · 处置建议 · 审批分级</div>
+                        </div>
+                    </div>
+                    <div id="secops-findings" class="secops-findings scroll-pane"></div>
+                </div>
+                <div class="panel secops-side-panel">
+                    <div class="panel-head">判定结果</div>
+                    <div class="secops-verdict-block">
+                        <div class="metric-label">Verdict</div>
+                        <div id="secops-verdict" class="secops-verdict">—</div>
+                        <div id="secops-confidence" class="metric-sub">等待研判</div>
+                        <div class="metric-label" style="margin-top:14px">响应分级</div>
+                        <div id="secops-mode" class="secops-mode">—</div>
+                        <div class="metric-label" style="margin-top:14px">攻击技术 (MITRE)</div>
+                        <div id="secops-mitre" class="chip-row"></div>
+                        <div class="metric-label" style="margin-top:14px">提取的 IOC</div>
+                        <div id="secops-iocs" class="secops-iocs mono"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 报告 -->
+            <div id="secops-report" class="prose report-full hidden"></div>
+        </div>
+    </section>
+
     <!-- ====================== Chat Tab ====================== -->
     <section id="tab-chat" class="tab-pane hidden">
         <div class="chat-wrap">
@@ -227,6 +295,6 @@
     <div id="drawer-body" class="drawer-body prose scroll-pane"></div>
 </aside>
 
-<script src="/app.js?v=20260908b"></script>
+<script src="/app.js?v=20260917a"></script>
 </body>
 </html>
