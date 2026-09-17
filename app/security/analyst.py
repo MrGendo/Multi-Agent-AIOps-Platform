@@ -163,7 +163,7 @@ async def analyst_node(state: SecOpsState) -> dict:
     try:
         harness = get_agent_harness()
         router_model = harness.router_model()
-        llm = get_chat_llm(model=router_model, temperature=0, timeout=60, max_retries=1)
+        llm = get_chat_llm(model=router_model, temperature=0, timeout=120, max_retries=3)
         decision: AnalystAssessment = await ainvoke_structured(
             llm=llm,
             schema_cls=AnalystAssessment,
