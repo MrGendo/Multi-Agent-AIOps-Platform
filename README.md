@@ -15,6 +15,14 @@
 
 ---
 
+## 界面预览：安全研判工作台（真实运行截图）
+
+「安全研判」tab：五阶段流水（Triage → Scout → Analyst → Critic → Reporter，active/done/skip 三态点亮）+ 判定面板（verdict 四态语义色 · 置信度 · 响应分级徽章 · MITRE 技术 chips · IOC 分型列表）+ 研判报告 + **多轮对话区**（分析师补充取证材料，判定基于新证据更新）+ 历史会话列表（点击恢复续聊）。下图为真实研判会话恢复态（verdict「可疑」，含 4 轮真实对话研判记录）：
+
+![安全研判工作台](docs/images/secops-workbench.png)
+
+---
+
 ## 界面预览：多专家并行会诊（真实运行截图）
 
 以下截图来自真实运行（真实 LLM + 真实工具探测，非 mock）。输入跨域故障：
@@ -119,40 +127,55 @@ Reporter 报告 ──► FactSheet + 响应分级硬规则 (LOW→observe / MED
 
 ### 整体架构设计图
 
-系统核心诊断图由 LangGraph 编排驱动，架构如下图所示：
+系统由统一事件入口按域分流，两条 LangGraph 管线共享 Agent Runtime / RAG / MCP 工具层：
 
 ```mermaid
 flowchart TD
-    A[User Input / Alertmanager Webhook] -->|1. 触发诊断| B[Orchestrator 统筹节点]
-    
-    subgraph "经验大脑 (RAG/Milvus)"
-    RAG[(experience_db & kb_corpus)] -.->|2. 检索双路上下文| B
+    A[事件入口<br/>前端 / Alertmanager / 安全设备 Webhook<br/>Wazuh·Suricata·Falco 自动识别] --> DC{Domain Classifier<br/>域分类器<br/>规则快路径 + LLM}
+
+    DC -->|运维故障| B[Orchestrator 统筹节点<br/>AIOps 运维域]
+    DC -->|安全告警·宁严勿漏| T[Triage 初筛<br/>SecOps 安全域]
+
+    subgraph "经验大脑 (RAG/Milvus) — 双域共享"
+        RAG[(SOP 语料 · 历史经验<br/>研判经验 · MITRE 697 技术)]
+    end
+    RAG -.->|双路检索| B
+    RAG -.->|同类告警经验/技术详情召回| AN
+
+    subgraph "AIOps 运维域: Orchestrator-Experts-Merger"
+        B -->|LangGraph Send 并发扇出| E1[Database Expert]
+        B -->|并发扇出| E2[Network Expert]
+        subgraph "Expert Subgraph (领域专家独立子图)"
+            E1 --> P[Planner 拆解探测步骤]
+            P --> EX[Executor 调 MCP 工具/沙箱动态编程]
+            EX <-->|凭据占位符注入| Vault[(Secret Vault)]
+            EX --> C1{Critic 防幻觉校验}
+            C1 -->|驳回重改| EX
+            C1 -->|放行| RP[Replanner 宏观裁定]
+            RP -->|需补充证据| EX
+        end
+        RP --> M[Merger 汇编·Debate 裁决]
+        E2 --> M
+        M --> RM[Remediation Planner 自愈规划]
+        RM -->|"HITL 人工审批"| AE[Action Executor 执行]
     end
 
-    B -->|3. LangGraph Send 并发扇出| E1(Database Expert)
-    B -->|3. LangGraph Send 并发扇出| E2(Network Expert)
-    B -->|3. LangGraph Send 并发扇出| E3(...)
-    
-    subgraph "Expert Subgraph (领域专家独立子图)"
-    E1 --> P[Planner 节点: 拆解探测步骤]
-    P --> EX[Executor 节点: 调工具/沙箱动态编程]
-    
-    EX <-->|4. 动态凭据注入| Vault[(Secret Vault)]
-    
-    EX --> C{Critic 节点: 防幻觉/报错校验}
-    C -->|5. 驳回要求重改| EX
-    C -->|6. 校验放行| RP[Replanner 节点: 宏观裁定]
-    RP -->|需补充证据| EX
+    subgraph "SecOps 安全域: 五阶段研判流水"
+        T -->|skip: 误报/授权扫描| OUT1[benign 报告<br/>零深查 token]
+        T -->|investigate| SC[Scout 取证<br/>IOC 正则提取·异常分·情报富化·MITRE 映射]
+        SC --> AN[Analyst 研判<br/>四态判定 + 置信度]
+        AN -->|置信度不足回环 ≤3| SC
+        AN --> C2{Critic 审计<br/>证据-结论匹配 + 注入操纵检测}
+        C2 -->|驳回回炉 ≤1| AN
+        C2 -->|放行| REP[Reporter 报告<br/>FactSheet + 响应分级硬规则<br/>HIGH/CRITICAL → 需人工审批]
+        REP -.->|无法判定| FG[取证引导<br/>设备→操作→证据]
+        REP --> DLG[研判多轮对话<br/>分析师补充证据 → 判定更新]
+        DLG --> CONS[对话经验沉淀<br/>证据+最终判定入库]
     end
 
-    RP -->|7. 独立报告提交| M[Merger 汇编节点]
-    E2 --> M
-    E3 --> M
-    
-    M -->|8. 消除冲突合成主报告| RM[Remediation Planner 自愈规划]
-    RM -->|"9. 人工审批停顿 (HITL)"| AE[Action Executor 自愈执行]
-    
-    AE -->|10. 诊断报告输出| Output[SSE 推送前端 & 异步提炼入库]
+    AE --> OUT2[SSE 推送前端 + 经验提炼入库]
+    REP --> OUT2
+    CONS -.->|同类告警下次召回| RAG
 ```
 
 ### 节点作用与底层实现详解
