@@ -556,6 +556,10 @@ document.getElementById("secops-dlg-send").addEventListener("click", sendDialogu
 document.getElementById("secops-dlg-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.isComposing) sendDialogueMsg();
 });
+document.getElementById("secops-dlg-collapse").addEventListener("click", () => {
+    // 只折叠 UI: 会话保留在服务端, 不结束不沉淀, 可从历史列表重新打开
+    document.getElementById("secops-dialogue-wrap").classList.add("hidden");
+});
 document.getElementById("secops-dlg-close").addEventListener("click", closeDialogueSession);
 document.getElementById("secops-history-refresh").addEventListener("click", loadSecopsHistory);
 loadSecopsHistory();

@@ -841,3 +841,6 @@ body {
 }
 .secops-dlg-msgs .msg-user .msg-content { background: var(--accent); color: #fff; }
 :root[data-theme="light"] .secops-dlg-msgs .msg-ai .msg-content { background: rgba(0,0,0,.04); }
+
+/* 对话头部动作区 */
+.dlg-head-actions { margin-left: auto; display: inline-flex; gap: 4px; }

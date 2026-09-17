@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css?v=20260917c">
+    <link rel="stylesheet" href="/styles.css?v=20260917d">
 </head>
 <body>
 
@@ -230,7 +230,10 @@
                 <div class="panel-head">
                     研判对话
                     <span id="secops-dlg-status" class="t-dim">补充取证结果 / 追问 / 纠正判定</span>
-                    <button id="secops-dlg-close" class="link-btn" title="结束对话, 补充的证据与最终判定将沉淀为研判经验">结束并沉淀经验</button>
+                    <span class="dlg-head-actions">
+                        <button id="secops-dlg-collapse" class="link-btn" title="收起对话框 (会话保留, 可从历史列表重新打开)">收起</button>
+                        <button id="secops-dlg-close" class="link-btn" title="结束对话, 补充的证据与最终判定将沉淀为研判经验">结束并沉淀经验</button>
+                    </span>
                 </div>
                 <div id="secops-dlg-messages" class="chat-messages scroll-pane secops-dlg-msgs"></div>
                 <div class="chat-input-row">
@@ -327,6 +330,6 @@
     <div id="drawer-body" class="drawer-body prose scroll-pane"></div>
 </aside>
 
-<script src="/app.js?v=20260917c"></script>
+<script src="/app.js?v=20260917d"></script>
 </body>
 </html>
