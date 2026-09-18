@@ -727,6 +727,13 @@ function handleSecopsEvent(ev) {
         const counts = ["ips", "hashes", "domains", "cves"].map((k) => `${(iocs[k] || []).length} ${k}`).join(" · ");
         secopsFinding(`<span class="f-tag tag-scout">Scout</span> IOC: ${counts} · 异常分 <b>${d.anomaly_score ?? "—"}</b>${d.intel_snippets ? "" : ""}`);
         renderSecopsIocs(iocs);
+    } else if (t === "investigator") {
+        // 调查子代理 (决策/执行分离): Analyst 卡保持 active, 透出目标与压缩发现
+        secopsStage("analyst", "active");
+        statusEl.textContent = "子代理定向调查中…";
+        const objText = escapeHtml((d.objective || "").slice(0, 160));
+        const findings = (d.findings || []).map((f) => escapeHtml(String(f).slice(0, 400))).join("<br>");
+        secopsFinding(`<span class="f-tag tag-scout">子代理</span> Analyst 下达调查目标: <b>${objText}</b>${findings ? `<br><span class="t-dim">调查发现:</span><br>${findings}` : ""}`);
     } else if (t === "analyst") {
         secopsStage("analyst", "done");
         statusEl.textContent = "审计中…";

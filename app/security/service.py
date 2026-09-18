@@ -302,6 +302,19 @@ async def _convert_secops_event(
             assessment=node_output.get("assessment", ""),
         )
 
+    elif node_name == "investigator":
+        # 调查子代理 (决策/执行分离): 只透出目标与压缩发现, 不透出原始工具日志
+        findings = node_output.get("investigation_findings") or []
+        objective = node_output.get("investigation_needs") or ""
+        if findings or objective:
+            yield _make_event(
+                "investigator",
+                "subagent_investigating",
+                message="调查子代理执行定向调查",
+                objective=objective,
+                findings=findings,
+            )
+
     elif node_name == "critic":
         passed = node_output.get("critic_passed", True)
         if passed:
