@@ -141,9 +141,27 @@ def _adapt_falco(ev: Dict[str, Any]) -> "Any":
 
 
 def detect_and_normalize(payload: Dict[str, Any]) -> Optional[Any]:
-    """识别设备格式并归一化; 未识别返回 None (调用方走通用 schema)."""
+    """识别设备格式并归一化; 未识别返回 None (调用方走通用 schema).
+
+    支持: Wazuh / Suricata EVE / Falco / 长亭雷池 SafeLine / CEF 文本
+    (装在 {"cef_text": "..."} 或 {"text": "CEF:..."} 包装里, syslog 转发常见).
+    """
     if not isinstance(payload, dict):
         return None
+    # CEF: 文本包装 (syslog 转发器/HTTP 网关把 CEF 日志行塞进 text 字段)
+    raw_text = payload.get("cef_text") or payload.get("text") or ""
+    if isinstance(raw_text, str) and "CEF:" in raw_text[:600]:
+        from app.security.cef_adapter import adapt_cef_text
+
+        adapted = adapt_cef_text(raw_text)
+        if adapted is not None:
+            return adapted
+    # 长亭雷池 SafeLine (裸聚合事件 或 API 响应包装)
+    from app.security.safeline_adapter import adapt_safeline_payload
+
+    adapted = adapt_safeline_payload(payload)
+    if adapted is not None:
+        return adapted
     # Wazuh: 包裹 {"alert": {...}} 或裸 dict 带 rule.id + (agent|full_log|data)
     candidate = payload.get("alert") if isinstance(payload.get("alert"), dict) else None
     if candidate and isinstance(candidate.get("rule"), dict):

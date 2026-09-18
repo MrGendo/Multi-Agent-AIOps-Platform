@@ -74,6 +74,47 @@ output.http:
 
 注意 eve.json 是 JSONL（一行一个事件），`event_type != alert` 的（flow/http/dns 等）会被平台丢弃，建议 filebeat 侧就过滤掉省带宽。
 
+## 二·B、长亭雷池 (SafeLine WAF)
+
+雷池社区版无原生 webhook，用**开放 API 拉模式**（官方 API：`GET /api/open/events`，`X-Api-Token` 认证）：
+
+```bash
+export SAFELINE_URL=https://<雷池地址>:9443
+export SAFELINE_API_TOKEN=<控制台-系统设置-开放 API 里生成>
+.venv/bin/python scripts/poll_safeline.py --loop          # 每 30s 轮询转发
+.venv/bin/python scripts/poll_safeline.py --dry-run       # 先看会拉到什么
+```
+
+拉取器幂等（已见事件 id 落盘不重发）。若你的环境有转发层把雷池事件 JSON 直接 POST 过来，webhook 会自动识别（`native-safeline`）。
+
+## 二·C、CEF 通用格式（覆盖 NDR/EDR/SIEM/防火墙一类设备）
+
+CEF（Common Event Format）是 ArcSight 定义的事实标准，国内外大量 NDR/EDR/SIEM/防火墙支持以 CEF 导出事件（syslog 或 HTTP）。**一个适配器覆盖一类设备**（天眼/绿盟/深信服等若配置 CEF 输出即接即用）。
+
+CEF 文本装在 JSON 的 `text` 或 `cef_text` 字段里 POST（syslog 转 HTTP 网关/rsyslog omhttp 均可）：
+
+```bash
+curl -X POST http://<平台IP>:9900/api/v1/webhook/security -H "Content-Type: application/json" \
+  -d '{"text": "<134>fw01 corp: CEF:0|奇安信|天眼NDR|3.0|3033|横向移动检测|8|src=10.20.1.15 dst=10.20.4.22 outcome=detected"}'
+```
+
+格式：`CEF:Version|厂商|产品|版本|签名ID|名称|Severity|key=value扩展`
+- severity 0-10 自动映射四档（0-3 LOW / 4-6 MEDIUM / 7-8 HIGH / 9-10 CRITICAL）
+- 扩展字段 `src`/`dst`/`request`/`msg`/`outcome`/`duser` 等自动提取为研判证据
+- 支持 syslog 前缀（`<134>时间 主机 tag:` 自动剥离）、带空格值的转义
+
+rsyslog 转 HTTP 示例（设备发 syslog CEF → rsyslog 转发平台）：
+
+```
+# /etc/rsyslog.d/90-secops.conf
+module(load="omhttp")
+template(name="secops" type="json") {
+    constant(value="{\"text\":\"") property(name="msg" format="json") constant(value="\"}")
+}
+if $msg contains "CEF:" then action(type="omhttp" url="http://<平台IP>:9900/api/v1/webhook/security" template="secops")
+```
+
+
 ## 三、Falco
 
 Falco 原生 webhook 输出。`/etc/falco/falco.yaml`：
