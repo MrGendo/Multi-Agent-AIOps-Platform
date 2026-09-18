@@ -135,10 +135,17 @@ async def run_investigation(alert_text: str, objective: str, context: str = "") 
                 try:
                     from app.runtime.tool_runner import _safe_invoke_tool
 
-                    result = await _safe_invoke_tool(tool, {"name": name, "args": tc.get("args", {})})
+                    # 必须带 id: _safe_invoke_tool 末尾构造 ToolMessage 要读
+                    # tool_call["id"] (E2E 抓到 KeyError('id') — 工具明明执行
+                    # 成功, 结果构造时炸掉被误报为执行失败)
+                    result = await _safe_invoke_tool(
+                        tool,
+                        {"name": name, "id": tc.get("id", ""), "args": tc.get("args", {})},
+                    )
                 except Exception as exc:
                     result = f"工具执行失败: {exc}"
-                result_text = str(result)[:1500]
+                # result 是 ToolMessage — 取 .content (str(obj) 只有类名)
+                result_text = str(getattr(result, "content", result))[:1500]
                 tool_log.append(f"{name}: {result_text[:200]}")
                 messages.append({"role": "tool", "tool_call_id": tc.get("id", ""), "content": result_text})
     except Exception as exc:

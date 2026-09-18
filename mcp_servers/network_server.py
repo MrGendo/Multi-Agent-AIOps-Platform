@@ -61,14 +61,28 @@ def ping_host(host: str, count: int = 4) -> str:
         return f"[拒绝] {host} 是内网/回环地址, 不允许 ping"
     count = max(1, min(int(count or 4), 10))
 
+    import sys
+
     try:
-        # Windows ping 默认 4 次, -n 指定次数, -w 单次超时 (毫秒)
+        if sys.platform == "win32":
+            # Windows: -n 次数, -w 单次超时(ms), 默认 GBK 编码
+            cmd = ["ping", "-n", str(count), "-w", "2000", host]
+            encoding = "gbk"
+        elif sys.platform == "darwin":
+            # macOS(BSD ping): -c 次数, -W 单次等待(秒*1000→ms 不支持, 用 -W 毫秒不可用
+            # BSD ping 无 -w; deadline 用 -t 秒), 无 GBK 问题
+            cmd = ["ping", "-c", str(count), "-W", "2000", "-t", str(count * 2 + 2), host]
+            encoding = "utf-8"
+        else:
+            # Linux(iputils): -c 次数, -W 单次等待(s→用 2), -w deadline(s)
+            cmd = ["ping", "-c", str(count), "-W", "2", "-w", str(count * 2 + 2), host]
+            encoding = "utf-8"
         proc = subprocess.run(
-            ["ping", "-n", str(count), "-w", "2000", host],
+            cmd,
             capture_output=True,
             text=True,
             timeout=count * 3 + 5,
-            encoding="gbk",  # Windows ping 默认 GBK
+            encoding=encoding,
             errors="replace",
         )
     except subprocess.TimeoutExpired:
