@@ -906,6 +906,98 @@ async function openHistoryDialogue(sid) {
     }
 }
 
+// ============================================================
+// SecOps 图片证据 (取证截图 -> 视觉转写 -> 研判)
+// ============================================================
+function fileToB64(file) {
+    return new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result.split(",")[1]);  // 去 data: 前缀
+        r.onerror = rej;
+        r.readAsDataURL(file);
+    });
+}
+
+async function handleDialogueImage(file) {
+    if (!currentDialogueId) return alert("请先开始一次研判 (或从历史打开会话)");
+    const statusEl = document.getElementById("secops-dlg-status");
+    statusEl.textContent = "图片转写中…";
+    appendDialogueMsg("user", `📷 [上传取证截图: ${file.name}]`);
+    try {
+        const b64 = await fileToB64(file);
+        const note = document.getElementById("secops-dlg-input").value.trim();
+        const resp = await fetch(`${API}/secops/dialogue/${currentDialogueId}/image`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image_b64: b64, mime: file.type || "image/png", note, message: "" }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+        const badge = data.verdict_changed
+            ? `<div class="dlg-verdict-changed">判定更新: ${VERDICT_LABEL[data.verdict]?.text || data.verdict} · 置信度 ${(data.confidence * 100).toFixed(0)}%</div>` : "";
+        appendDialogueMsg("assistant",
+            `图片证据已提取并完成研判:\n${(data.extraction || "").slice(0, 300)}…`, badge);
+        if (data.verdict_changed) setSecopsVerdict(data.verdict, data.confidence);
+        statusEl.textContent = "就绪";
+    } catch (e) {
+        appendDialogueMsg("assistant", `图片处理失败: ${e.message}`);
+        statusEl.textContent = "失败";
+    }
+}
+
+async function handleTriageImage(file) {
+    const statusEl = document.getElementById("secops-status");
+    const query = document.getElementById("secops-query").value.trim() || "安全设备截图告警, 请研判";
+    statusEl.textContent = "图片转写中…";
+    try {
+        const b64 = await fileToB64(file);
+        // 图片转写后走标准 SSE 研判 (consumeSSE 复用)
+        const resp = await fetch(`${API}/secops/triage/image`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image_b64: b64, mime: file.type || "image/png", note: "", message: query }),
+        });
+        if (!resp.ok) {
+            const data = await resp.json().catch(() => ({}));
+            throw new Error(data.detail || `HTTP ${resp.status}`);
+        }
+        // 复用现有 SSE 处理管线
+        secopsAbortController = new AbortController();
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            let idx;
+            while ((idx = buf.indexOf("\n\n")) >= 0) {
+                const chunk = buf.slice(0, idx);
+                buf = buf.slice(idx + 2);
+                const line = chunk.split("\n").find((l) => l.startsWith("data: "));
+                if (line) {
+                    try { handleSecopsEvent(JSON.parse(line.slice(6))); } catch (e) { /* 忽略坏行 */ }
+                }
+            }
+        }
+        secopsAbortController = null;
+    } catch (e) {
+        statusEl.textContent = "失败 ✗";
+        alert(`图片研判失败: ${e.message}`);
+    }
+}
+
+document.getElementById("secops-dlg-img-input").addEventListener("change", (e) => {
+    const f = e.target.files[0];
+    if (f) handleDialogueImage(f);
+    e.target.value = "";
+});
+document.getElementById("secops-img-input").addEventListener("change", (e) => {
+    const f = e.target.files[0];
+    if (f) handleTriageImage(f);
+    e.target.value = "";
+});
+
 async function startSecops() {
     const query = document.getElementById("secops-query").value.trim();
     if (!query) return alert("请输入安全告警内容");

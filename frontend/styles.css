@@ -844,3 +844,7 @@ body {
 
 /* 对话头部动作区 */
 .dlg-head-actions { margin-left: auto; display: inline-flex; gap: 4px; }
+
+/* 图片上传按钮 */
+.img-upload-btn { cursor: pointer; user-select: none; }
+.hidden-file-input { display: none; }

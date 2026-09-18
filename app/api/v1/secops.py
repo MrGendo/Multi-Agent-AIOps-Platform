@@ -134,3 +134,81 @@ async def secops_dialogue_close(session_id: str) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": "会话不存在"})
     result = await sec_dialogue.close_session(session)
     return {"session_id": session_id, **result}
+
+
+# ============================================================
+# 图片证据 (取证截图 -> 视觉模型转写 -> 进研判)
+# ============================================================
+from pydantic import BaseModel as _BM, Field as _F  # noqa: E402
+
+from app.security.image_evidence import (  # noqa: E402
+    extract_image_evidence,
+    validate_image_b64,
+)
+from app.security import dialogue as sec_dialogue_mod  # noqa: E402
+
+
+class ImageEvidenceRequest(_BM):
+    """图片证据请求."""
+
+    image_b64: str = _F(..., min_length=32, description="图片 base64 (不含 data: 前缀)")
+    mime: str = _F(default="image/png", description="MIME 类型: png/jpeg/gif/webp")
+    note: str = _F(default="", max_length=500, description="分析师对图片的说明 (可选)")
+    message: str = _F(default="", max_length=4000, description="随图附加的文字说明 (可选)")
+
+
+@router.post("/dialogue/{session_id}/image", summary="研判对话 — 上传取证截图 (视觉提取后进研判)")
+async def secops_dialogue_image(session_id: str, req: ImageEvidenceRequest) -> JSONResponse:
+    session = sec_dialogue_mod.get_session(session_id)
+    if not session:
+        return JSONResponse(status_code=404, content={"detail": f"研判会话不存在: {session_id}"})
+    ok, err = validate_image_b64(req.image_b64, req.mime)
+    if not ok:
+        return JSONResponse(status_code=422, content={"detail": err})
+
+    extraction = await extract_image_evidence(req.image_b64, req.mime, req.note)
+    if not extraction:
+        return JSONResponse(status_code=503, content={
+            "detail": "图片提取服务暂不可用, 请稍后重试或改用文字粘贴证据"})
+
+    # 转写文本作为该轮用户输入进对话研判 (含图说明则前置)
+    user_input = f"[图片证据{' — ' + req.note if req.note else ''}]\n{extraction}"
+    if req.message:
+        user_input = f"{req.message}\n\n{user_input}"
+    result = await sec_dialogue_mod.dialogue_turn(session, user_input)
+    return {
+        "session_id": session_id,
+        "extraction": extraction[:1200],
+        **result,
+    }
+
+
+@router.post("/triage/image", summary="带图研判 — 告警文本 + 取证截图 直接研判 (SSE 流式)")
+async def secops_triage_with_image(req: ImageEvidenceRequest):
+    """图片先转写为文字证据, 拼进告警文本走标准研判流 (含五阶段 SSE)."""
+    import json as _json
+    import time as _time
+
+    from sse_starlette.sse import EventSourceResponse
+
+    ok, err = validate_image_b64(req.image_b64, req.mime)
+    if not ok:
+        return JSONResponse(status_code=422, content={"detail": err})
+    extraction = await extract_image_evidence(req.image_b64, req.mime, req.note)
+    if not extraction:
+        return JSONResponse(status_code=503, content={
+            "detail": "图片提取服务暂不可用, 请稍后重试或改用文字提交告警"})
+
+    alert_text = (
+        f"{req.message or '安全设备截图告警, 请研判'}\n\n"
+        f"[截图证据{' — ' + req.note if req.note else ''}]\n{extraction}"
+    )
+    session_id = f"img-{int(_time.time())}"
+
+    async def event_generator():
+        from app.security.service import stream_triage
+
+        async for ev in stream_triage(alert_text, session_id=session_id):
+            yield {"event": "message", "data": _json.dumps(ev, ensure_ascii=False)}
+
+    return EventSourceResponse(event_generator())

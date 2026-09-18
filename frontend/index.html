@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css?v=20260917d">
+    <link rel="stylesheet" href="/styles.css?v=20260917e">
 </head>
 <body>
 
@@ -162,6 +162,9 @@
                 <textarea id="secops-query" rows="2" spellcheck="false"
                     placeholder="粘贴安全告警: IDS/WAF 事件、可疑行为描述、攻击线索 (IP/hash/域名/CVE 会自动提取为 IOC)…">SSH 暴力破解告警: 来自 203.0.113.42, 10 次失败登录, 目标主机 10.0.0.5 prod-web-01</textarea>
                 <div class="btn-row btn-row-inline">
+                    <label class="btn-ghost img-upload-btn" title="上传取证截图 (WAF/IDS 控制台/日志终端), 视觉模型自动转写后进研判">
+                        📷 图片<input type="file" id="secops-img-input" accept="image/png,image/jpeg,image/gif,image/webp" class="hidden-file-input">
+                    </label>
                     <button id="secops-start" class="btn-primary">开始研判</button>
                     <button id="secops-stop" class="btn-ghost" disabled>停止</button>
                 </div>
@@ -239,6 +242,9 @@
                 <div class="chat-input-row">
                     <input id="secops-dlg-input" type="text" spellcheck="false"
                         placeholder="粘贴取证结果 (auth.log / WAF 记录 / 情报查询) 或输入问题…" />
+                    <label class="toggle-chip img-upload-btn" title="上传取证截图, 视觉模型自动转写后参与研判">
+                        📷<input type="file" id="secops-dlg-img-input" accept="image/png,image/jpeg,image/gif,image/webp" class="hidden-file-input">
+                    </label>
                     <button id="secops-dlg-send" class="btn-primary">发送</button>
                 </div>
             </div>
@@ -330,6 +336,6 @@
     <div id="drawer-body" class="drawer-body prose scroll-pane"></div>
 </aside>
 
-<script src="/app.js?v=20260917d"></script>
+<script src="/app.js?v=20260917e"></script>
 </body>
 </html>
