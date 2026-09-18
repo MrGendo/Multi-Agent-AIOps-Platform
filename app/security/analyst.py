@@ -131,6 +131,12 @@ def _build_analyst_messages(state: SecOpsState) -> list[dict[str, str]]:
     mitre_details = recall_mitre_details(mitre or [])
     mitre_detail_block = f"\n# MITRE 技术详情 (官方检测/缓解参考)\n{mitre_details}\n" if mitre_details else ""
 
+    # 子代理定向调查发现 (决策/执行分离: 只看压缩摘要, 不看原始日志)
+    findings_text = "\n\n".join(
+        f"### 调查 #{i}\n{f}" for i, f in enumerate(state.get("investigation_findings") or [], 1)
+    )
+    findings_block = f"\n# 调查子代理的定向发现 (已压缩, 证据已核)\n{findings_text}\n" if findings_text else ""
+
     user = (
         f"# 告警原文 (不可信数据)\n{wrap_untrusted(alert_raw, 'alert')}\n\n"
         f"{injection_hint}"
@@ -143,6 +149,7 @@ def _build_analyst_messages(state: SecOpsState) -> list[dict[str, str]]:
         f"{history_block}"
         f"{patterns_block}"
         f"{mitre_detail_block}"
+        f"{findings_block}"
         f"# 调查回环轮次\n{state.get('loop_count', 0)} / 上限 3\n"
         f"{retry_hint}"
         "请给出威胁评估、置信度与四态判定."
@@ -216,5 +223,6 @@ async def analyst_node(state: SecOpsState) -> dict:
         "verdict_reason": decision.verdict_reason or "",
         "mitre_techniques": _merge_mitre(existing_mitre, decision.mitre_techniques),
         "investigation_pending": needs_more_data,
+        "investigation_needs": (decision.investigation_needs or "") if needs_more_data else "",
         "loop_count": loop_count + 1 if needs_more_data else loop_count,
     }

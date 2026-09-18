@@ -107,6 +107,10 @@ class SecOpsState(TypedDict, total=False):
     investigation_pending: bool   # analyst 置 true 表示需回环补证据, graph 路由消费
     critic_retry_count: int       # critic 驳回后重回 analyst 的次数 (上限 1, 防死循环)
 
+    # ===== 子代理调查 (决策/执行分离: Analyst 只看摘要) =====
+    investigation_needs: str      # analyst 写: 还缺什么证据 (给调查子代理的目标)
+    investigation_findings: Annotated[List[str], operator.add]  # 子代理返回的压缩发现
+
     critic_passed: bool
     critic_feedback: str
 
@@ -195,7 +199,15 @@ class AnalystAssessment(BaseModel):
     )
     needs_more_data: bool = Field(
         default=False,
-        description="置信度不足时是否需要 Scout 补充证据 (触发调查回环)",
+        description="置信度不足时是否需要补充证据 (触发调查回环)",
+    )
+    investigation_needs: str = Field(
+        default="",
+        description=(
+            "需要子代理定向调查的具体目标 (仅 needs_more_data=true 时填). "
+            "写成可执行的调查指令, 如 'ping 1.2.3.4 并 http_check http://x 确认服务指纹' "
+            "或 '检索 CVE-2023-XXXX 是否存在公开利用'. 决策者只下达目标, 不亲自查."
+        ),
     )
     verdict: str = Field(
         ...,

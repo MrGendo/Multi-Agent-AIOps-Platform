@@ -229,16 +229,58 @@ _SYSTEM_PROMPT = """你是安全研判工作台上的 SecOps Analyst, 正在与�
 6. reply 用简洁中文, 先给结论变化再给理由; 不确定就说不确定."""
 
 
-def _build_dialogue_messages(session: TriageSession) -> List[Dict[str, str]]:
+# ---------- 对话记忆 (短期: 近期原文 + 早期摘要滚动压缩) ----------
+_RECENT_KEEP = 6          # 最近 6 轮保留原文
+_SUMMARIZE_TRIGGER = 10    # 超过 10 轮时把早期轮次压缩成摘要
+
+
+async def _summarize_old_turns(old_turns: list) -> str:
+    """把早期对话轮压缩为事实性摘要 (LLM 失败退化为截断拼接)."""
     transcript = "\n".join(
-        f"[{'分析师' if t.role == 'user' else 'AI'}] {t.content[:1500]}" for t in session.turns[-12:]
-    ) or "(尚无对话)"
+        f"[{'分析师' if t.role == 'user' else 'AI'}] {t.content[:600]}" for t in old_turns
+    )
+    try:
+        llm = get_chat_llm(temperature=0, timeout=60, max_retries=1)
+        resp = await llm.ainvoke([
+            {"role": "system", "content": (
+                "把这段安全研判对话压缩为事实摘要: 只保留 (1) 分析师提供了哪些证据 "
+                "(2) 结论如何变化及为什么 (3) 未决问题. 300 字内, 中文, 不要客套."
+            )},
+            {"role": "user", "content": transcript[:6000]},
+        ])
+        content = getattr(resp, "content", resp)
+        if isinstance(content, list):
+            text = "".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+        else:
+            text = str(content)
+        return f"[早期对话摘要 ({len(old_turns)} 轮)]\n{text.strip()[:800]}"
+    except Exception:
+        # LLM 失败: 退化保留每轮首行
+        head_lines = [t.content.split("\n")[0][:80] for t in old_turns]
+        return f"[早期对话摘要-退化版 ({len(old_turns)} 轮)]\n" + "\n".join(head_lines[:12])
+
+
+async def _build_dialogue_messages(session: TriageSession) -> List[Dict[str, str]]:
+    """构造对话 prompt: 近期轮原文 + 早期轮摘要 (滚动压缩防 prompt 膨胀)."""
+    turns = session.turns
+    summary_block = ""
+    if len(turns) > _SUMMARIZE_TRIGGER:
+        old, recent = turns[:-_RECENT_KEEP], turns[-_RECENT_KEEP:]
+        summary_block = f"\n# 早期对话摘要 (细节已压缩)\n{await _summarize_old_turns(old)}\n"
+        transcript = "\n".join(
+            f"[{'分析师' if t.role == 'user' else 'AI'}] {t.content[:1500]}" for t in recent
+        )
+    else:
+        transcript = "\n".join(
+            f"[{'分析师' if t.role == 'user' else 'AI'}] {t.content[:1500]}" for t in turns[-12:]
+        ) or "(尚无对话)"
     user = (
         f"# 原始告警\n{session.alert_text[:1500]}\n\n"
         f"# 初判报告\n{session.report[:2500]}\n\n"
         f"# 当前判定\nverdict={session.verdict} severity={session.severity} mode={session.response_mode}\n\n"
-        f"# 已提取 IOC\n{json.dumps(session.iocs, ensure_ascii=False)[:600]}\n\n"
-        f"# 对话记录 (最近 12 轮)\n{transcript}\n\n"
+        f"# 已提取 IOC\n{json.dumps(session.iocs, ensure_ascii=False)[:600]}\n"
+        f"{summary_block}"
+        f"# 对话记录 (近期原文)\n{transcript}\n\n"
         "基于以上上下文与最新一轮分析师输入, 给出回复与判定更新."
     )
     return [
@@ -261,7 +303,7 @@ async def dialogue_turn(session: TriageSession, user_input: str) -> Dict[str, An
         update: VerdictUpdate = await ainvoke_structured(
             llm=llm,
             schema_cls=VerdictUpdate,
-            messages=_build_dialogue_messages(session),
+            messages=await _build_dialogue_messages(session),
             model_name=model,
         )
     except Exception as exc:

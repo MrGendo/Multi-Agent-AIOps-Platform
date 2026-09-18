@@ -333,10 +333,20 @@ class TestSecOpsGraph:
             if analyst_calls["n"] == 1:
                 return {"assessment": "证据不足", "confidence": 0.3, "verdict": "inconclusive",
                         "verdict_reason": "缺证据", "mitre_techniques": [],
-                        "investigation_pending": True, "loop_count": 1}
+                        "investigation_pending": True, "investigation_needs": "确认 1.2.3.4 是否为已知扫描器",
+                        "loop_count": 1}
+            # 第二轮: 已收到子代理调查发现
+            assert state.get("investigation_findings"), "analyst 第二轮应看到子代理发现"
             return {"assessment": "可疑行为", "confidence": 0.8, "verdict": "suspicious",
                     "verdict_reason": "二轮证据充分", "mitre_techniques": [],
                     "investigation_pending": False, "loop_count": 1}
+
+        async def fake_investigator(state):
+            investigator_calls["n"] += 1
+            return {"investigation_needs": "",
+                    "investigation_findings": [f"[调查目标] {state.get('investigation_needs')}\n[结论] 已确认相关行为"]}
+
+        investigator_calls = {"n": 0}
 
         async def fake_critic(state):
             return {"critic_passed": True, "critic_feedback": ""}
@@ -348,12 +358,14 @@ class TestSecOpsGraph:
         monkeypatch.setattr(g, "triage_node", fake_triage)
         monkeypatch.setattr(g, "scout_node", fake_scout)
         monkeypatch.setattr(g, "analyst_node", fake_analyst)
+        monkeypatch.setattr(g, "investigator_node", fake_investigator)
         monkeypatch.setattr(g, "sec_critic_node", fake_critic)
         monkeypatch.setattr(g, "reporter_node", fake_reporter)
 
         graph = g.build_secops_graph()
         result = await graph.ainvoke({"input": "异常流量 1.2.3.4"}, config={})
-        assert scout_calls["n"] == 2  # 回环一次
+        assert investigator_calls["n"] == 1  # 子代理定向调查一次
+        assert scout_calls["n"] == 1         # scout 只跑初始取证 (不再盲目回环)
         assert analyst_calls["n"] == 2
         assert result["verdict"] == "suspicious"
 

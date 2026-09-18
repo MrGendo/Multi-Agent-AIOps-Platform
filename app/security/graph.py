@@ -42,6 +42,7 @@ from app.agents.stream_sink import emit
 from app.security.analyst import analyst_node
 from app.security.critic import sec_critic_node
 from app.security.ioc_extractor import compute_anomaly_score, extract_iocs
+from app.security.investigator import run_investigation
 from app.security.reporter import reporter_node
 from app.security.state import (
     CONFIDENCE_THRESHOLD,
@@ -111,6 +112,33 @@ async def scout_node(state: SecOpsState) -> dict:
 
 
 # ============================================================
+# Investigator 节点 (调查子代理: 决策/执行分离)
+# ============================================================
+async def investigator_node(state: SecOpsState) -> dict:
+    """执行 Analyst 下达的定向调查目标, 返回压缩发现.
+
+    Analyst (决策) 只看 investigation_findings 摘要;
+    本节点 (执行) 跑独立 ReAct 循环调只读工具, 原始日志不出节点.
+    """
+    objective = state.get("investigation_needs") or ""
+    if not objective:
+        return {}  # 无目标 (如 LLM 失败兜底路径), 直通回 Analyst
+    iocs = state.get("iocs") or {}
+    context = (
+        f"IOC: {iocs}; 异常分 {state.get('anomaly_score', 0)}; "
+        f"已有判定 {state.get('verdict', '')} (conf {state.get('confidence', 0)})"
+    )
+    finding = await run_investigation(
+        state.get("input", ""), objective, context
+    )
+    # 消费掉目标防死循环; 调查发现累加供 Analyst 下一轮参考
+    return {
+        "investigation_needs": "",
+        "investigation_findings": [finding],
+    }
+
+
+# ============================================================
 # 路由函数
 # ============================================================
 def route_after_triage(state: SecOpsState) -> Literal["scout", "__end__"]:
@@ -120,14 +148,15 @@ def route_after_triage(state: SecOpsState) -> Literal["scout", "__end__"]:
     return "scout"
 
 
-def route_after_analyst(state: SecOpsState) -> Literal["scout", "critic"]:
-    """置信度不足且需补证据且未超回环上限 → 回 Scout; 否则进 Critic."""
+def route_after_analyst(state: SecOpsState) -> Literal["investigator", "critic"]:
+    """置信度不足且有调查目标且未超回环上限 → 派调查子代理; 否则进 Critic."""
     if (
         state.get("investigation_pending")
+        and (state.get("investigation_needs") or "")
         and float(state.get("confidence") or 0.0) < CONFIDENCE_THRESHOLD
         and int(state.get("loop_count") or 0) < MAX_INVESTIGATION_LOOPS
     ):
-        return "scout"
+        return "investigator"
     return "critic"
 
 
@@ -151,6 +180,7 @@ def build_secops_graph():
     workflow.add_node("triage", triage_node)
     workflow.add_node("scout", scout_node)
     workflow.add_node("analyst", analyst_node)
+    workflow.add_node("investigator", investigator_node)
     workflow.add_node("critic", sec_critic_node)
     workflow.add_node("reporter", reporter_node)
 
@@ -164,8 +194,9 @@ def build_secops_graph():
     workflow.add_conditional_edges(
         "analyst",
         route_after_analyst,
-        {"scout": "scout", "critic": "critic"},
+        {"investigator": "investigator", "critic": "critic"},
     )
+    workflow.add_edge("investigator", "analyst")  # 子代理发现 → 回决策者
     workflow.add_conditional_edges(
         "critic",
         route_after_critic,
