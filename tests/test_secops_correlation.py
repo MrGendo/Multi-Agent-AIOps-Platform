@@ -177,7 +177,6 @@ async def test_generate_report_persists(tmp_path, monkeypatch):
 def test_untrusted_wrapping(tmp_path, monkeypatch):
     """注入防御: 告警原文进 prompt 前被 untrusted 包裹."""
     monkeypatch.setattr(corr, "CORRELATION_DIR", tmp_path)
-    captured = {}
 
     fake = _FakeLLM()
 
