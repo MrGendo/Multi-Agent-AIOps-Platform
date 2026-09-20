@@ -1293,6 +1293,24 @@ function handleAiopsEvent(ev, planEl, stepsEl, reportEl, statusEl) {
         statusEl.textContent = "报告已生成";
         setText("mon-stream-hint", "已完成");
         renderTrace();
+    } else if (t === "cross_domain_hint") {
+        // 跨域反向提示: 诊断报告含安全特征 → 提示移交 SecOps (只提示不自动转)
+        showAiopsReport();
+        const hintDiv = document.createElement("div");
+        hintDiv.className = "cross-domain-hint";
+        hintDiv.innerHTML = `
+            <div class="cdh-text"><b>跨域信号</b> ${escapeHtml(ev.message || "")}
+                <span class="t-dim">(命中: ${(ev.data?.matched || []).map(escapeHtml).join(", ")})</span></div>
+            <button class="btn-primary cdh-go" type="button">转安全研判</button>`;
+        reportEl.prepend(hintDiv);
+        hintDiv.querySelector(".cdh-go").addEventListener("click", () => {
+            // 预填 SecOps 输入框并切换 tab (不自动发起研判, 由分析师确认)
+            const ta = document.getElementById("secops-query");
+            if (ta) ta.value = `[来自运维诊断移交] ${escapeHtml((d.report || "").slice(0, 600))}`;
+            document.querySelector('[data-tab="secops"]')?.click();
+            const tabBtn = [...document.querySelectorAll("button")].find((b) => /安全研判/.test(b.textContent));
+            if (tabBtn) tabBtn.click();
+        });
     } else if (t === "action_request") {
         showAiopsReport();
         const planText = d.plan || "";

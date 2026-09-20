@@ -164,6 +164,20 @@ async def stream_diagnose(
                                             f"[aiops] 诊断报告缓存/经验提炼触发失败 session={session_id}: "
                                             f"{type(exc).__name__}: {exc}"
                                         )
+                                    # 跨域反向提示: 报告含安全特征词 → 提示移交 SecOps (只提示不自动转)
+                                    from app.agents.security_signals import scan_security_signals
+
+                                    sig = scan_security_signals(report_text)
+                                    if sig:
+                                        yield sse_event
+                                        yield _make_event(
+                                            "cross_domain_hint",
+                                            "security",
+                                            message=sig["hint"],
+                                            matched=sig["matched"],
+                                            suggestion="转安全研判",
+                                        )
+                                        continue
                             yield sse_event
                     continue
                 # 其他都是 Executor 推出来的 token/step_start/tool_call 事件, 直接转 SSE.

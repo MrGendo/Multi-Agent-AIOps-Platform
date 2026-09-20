@@ -955,3 +955,12 @@ body {
 /* 成本行 (小字) */
 .secops-cost { font-size: 11px; color: var(--text-4); margin-top: -6px; }
 
+/* 跨域反向提示条 (AIOps 报告 → 建议移交 SecOps) */
+.cross-domain-hint {
+    display: flex; align-items: center; gap: 12px; justify-content: space-between;
+    border: 1px solid var(--warn, #d29922); border-radius: 8px;
+    padding: 10px 14px; margin-bottom: 12px;
+    background: color-mix(in srgb, var(--warn, #d29922) 8%, transparent);
+}
+.cross-domain-hint .cdh-text { font-size: 13px; line-height: 1.5; }
+
