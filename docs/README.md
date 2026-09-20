@@ -11,3 +11,7 @@
 - `redis_oncall_sop.md` — Redis 故障 SOP
 - `mysql_oncall_sop.md` — MySQL 故障 SOP
 - `common_alerts.md` — 通用告警处理
+
+## PROJECT_OVERVIEW.md
+
+项目全景说明（面向简历/面试素材）：架构与诊断流程、核心模块详解、关键技术难点、技术栈、量化成果与诚实边界。

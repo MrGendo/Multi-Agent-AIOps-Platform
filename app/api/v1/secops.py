@@ -8,6 +8,7 @@ POST /api/v1/secops/triage
 """
 
 import json
+from pathlib import Path
 from typing import AsyncIterator
 
 from fastapi import APIRouter
@@ -212,3 +213,240 @@ async def secops_triage_with_image(req: ImageEvidenceRequest):
             yield {"event": "message", "data": _json.dumps(ev, ensure_ascii=False)}
 
     return EventSourceResponse(event_generator())
+
+
+# ============================================================
+# 对话式告警关联研判 (Correlation Chat)
+# ============================================================
+import time as _time_mod  # noqa: E402
+
+from app.security import correlation as corr  # noqa: E402
+
+
+class CorrelationRequest(BaseModel):
+    """关联研判一轮请求."""
+
+    cid: str = Field(default="", description="会话 id (空则服务端新建 corr-<ts>-<rand4>)")
+    message: str = Field(..., min_length=1, max_length=8000, description="本条告警/观察输入")
+
+
+@router.post(
+    "/correlation",
+    summary="关联研判 — 开会话/追加一轮 (SSE 流式)",
+    description=(
+        "对话式告警关联研判: 每轮粘贴一条告警, 提取 IOC 后做关联分析 (ReAct 只读工具取证).\\n\\n"
+        "**SSE 事件类型** (event=message, data 为 json):\\n"
+        "- `corr_alert_added` - 本条输入已收录为告警 {cid, alert_index, raw, iocs}\\n"
+        "- `corr_tool_call` - 工具调用透出 {cid, name, args, result}\\n"
+        "- `corr_assistant` - 本轮关联研判答案 {cid, answer}\\n"
+        "- `corr_error` - 错误 {cid, message}\\n\\n"
+        "status=reported 的会话拒绝追加 (需开新会话)."
+    ),
+)
+async def secops_correlation_turn(req: CorrelationRequest) -> EventSourceResponse:
+    started = _time_mod.monotonic()
+    cid = req.cid or ""
+
+    async def event_generator() -> AsyncIterator[dict]:
+        llm_calls = 0
+
+        async def emit(event_type: str, data: dict) -> None:
+            nonlocal llm_calls
+            if event_type in ("corr_tool_call", "corr_assistant"):
+                llm_calls += 1
+            yield_queue.append({"event": "message", "data": json.dumps(
+                {"type": event_type, **data, "llm_calls": llm_calls,
+                 "elapsed_ms": int((_time_mod.monotonic() - started) * 1000)},
+                ensure_ascii=False)})
+
+        # emit 是 async callable(type, data) — correlation_turn 内部逐事件回调
+        import asyncio
+
+        yield_queue: list = []
+
+        # 新会话: 第一次拿到真实 cid 时先发 corr_cid (前端需要立即持有会话 id)
+        resolved_cid = {"v": ""}
+
+        async def emit_and_track(event_type: str, data: dict) -> None:
+            real_cid = data.get("cid") or ""
+            if real_cid and not resolved_cid["v"]:
+                resolved_cid["v"] = real_cid
+                yield_queue.append({"event": "message", "data": json.dumps(
+                    {"type": "corr_cid", "cid": real_cid}, ensure_ascii=False)})
+            await emit(event_type, data)
+
+        async def pump() -> None:
+            await corr.correlation_turn(cid, req.message, emit=emit_and_track)
+
+        task = asyncio.get_event_loop().create_task(pump())
+        while not (task.done() and not yield_queue):
+            while yield_queue:
+                yield yield_queue.pop(0)
+            await asyncio.sleep(0)
+            if task.done() and not yield_queue:
+                break
+        if task.exception() is not None:  # noqa: F821 — task 已完成
+            logger.exception(f"[secops] correlation 流异常: {task.exception()}")
+            yield {"event": "message", "data": json.dumps(
+                {"type": "corr_error", "cid": req.cid,
+                 "message": f"correlation_turn 异常: {task.exception()}"},
+                ensure_ascii=False)}
+        elif task.exception() is None and task.done():
+            # 正常收尾: 透出 complete 事件
+            result = task.result() if not task.cancelled() else None
+            yield {"event": "message", "data": json.dumps(
+                {"type": "complete", "cid": req.cid or (result or {}).get("cid", ""),
+                 "answer": result,
+                 "elapsed_ms": int((_time_mod.monotonic() - started) * 1000)},
+                ensure_ascii=False)}
+
+    return EventSourceResponse(event_generator())
+
+
+@router.get("/correlation", summary="关联会话列表")
+async def secops_correlation_list(limit: int = 20):
+    return {"items": corr.list_sessions(limit)}
+
+
+@router.get("/correlation/{cid}", summary="关联会话详情 (含全部告警/对话/报告)")
+async def secops_correlation_detail(cid: str) -> JSONResponse:
+    session = corr.get_session(cid)
+    if not session:
+        return JSONResponse(status_code=404, content={"detail": f"关联会话不存在: {cid}"})
+    return {
+        "cid": session.cid,
+        "created_at": session.created_at,
+        "alerts": [
+            {"index": i, "raw": a.raw, "source": a.source, "src_ip": a.src_ip,
+             "ts": a.ts, "iocs": a.iocs}
+            for i, a in enumerate(session.alerts)
+        ],
+        "turns": [
+            {"role": t.role, "content": t.content, "tools_used": t.tools_used, "ts": t.ts}
+            for t in session.turns
+        ],
+        "last_summary": session.last_summary,
+        "status": session.status,
+        "report": session.report,
+        "disposition": session.disposition,
+    }
+
+
+@router.post(
+    "/correlation/{cid}/report",
+    summary="关联研判 — 生成最终关联报告 (SSE 流式; accept: application/json 返回 JSON)",
+    description=(
+        "把会话内全部告警做攻击链关联总结, 出统一 incident 报告\\n"
+        "(verdict/severity/attack_chain/correlations/mitre/key_evidence/response_actions/conclusion).\\n\\n"
+        "**SSE 事件**: `corr_report` {cid, report} | `corr_error` {cid, message} | `complete`."
+    ),
+)
+async def secops_correlation_report(cid: str, request: Request):
+    import time as _t
+
+    started = _t.monotonic()
+
+    async def event_generator() -> AsyncIterator[dict]:
+        async def emit(event_type: str, data: dict) -> None:
+            pass  # 事件由返回值统一透出 (见下)
+
+        report = await corr.generate_correlation_report(cid, emit=None)
+        etype = "corr_error" if report.get("error") else "corr_report"
+        yield {"event": "message", "data": json.dumps(
+            {"type": etype, "cid": cid, ("report" if etype == "corr_report" else "message"):
+             (report if etype == "corr_report" else report.get("message", "")),
+             "elapsed_ms": int((_t.monotonic() - started) * 1000)},
+            ensure_ascii=False)}
+        yield {"event": "message", "data": json.dumps(
+            {"type": "complete", "cid": cid,
+             "elapsed_ms": int((_t.monotonic() - started) * 1000)},
+            ensure_ascii=False)}
+
+    if "application/json" in (request.headers.get("accept") or ""):
+        report = await corr.generate_correlation_report(cid, emit=None)
+        status = 404 if report.get("error") == "session_not_found" else 200
+        return JSONResponse(status_code=status, content=report)
+    return EventSourceResponse(event_generator())
+
+
+# ============================================================
+# 处置登记 (Disposition)
+# ============================================================
+class DispositionRequest(BaseModel):
+    """处置登记请求."""
+
+    action: str = Field(
+        ...,
+        description="处置动作: resolved (已处置) / false_positive (误报) / deferred (搁置)",
+        pattern="^(resolved|false_positive|deferred)$",
+    )
+    note: str = Field(default="", max_length=2000, description="处置备注 (谁处理的/做了什么)")
+    verdict: str = Field(default="", description="最终判定 (可选, 四态; 关联会话报告里带)")
+
+
+_HISTORY_FILE = Path(__file__).resolve().parents[2] / "data" / "alert_history.jsonl"
+
+
+def _append_disposition_history(record: dict) -> None:
+    """处置登记落 alert_history.jsonl (disposition 字段)."""
+    _HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with _HISTORY_FILE.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+@router.post(
+    "/correlation/{cid}/disposition",
+    summary="处置登记 (关联会话维度) — 写回会话并落 alert_history.jsonl",
+    description="动作: resolved / false_positive / deferred. 写回 CorrelationSession.disposition.",
+)
+async def secops_correlation_disposition(cid: str, req: DispositionRequest) -> JSONResponse:
+    """关联会话处置登记 (显式路由, 避免 /{session_id}/disposition 通配匹配不到两段路径)."""
+    return await secops_disposition(cid, req)
+
+
+@router.post(
+    "/{session_id}/disposition",
+    summary="处置登记 — 记录会话/告警的处置结论 (落 alert_history.jsonl)",
+    description=(
+        "三类动作: `resolved` (已处置) / `false_positive` (误报) / `deferred` (搁置).\\n\\n"
+        "session_id 支持两种维度:\\n"
+        "- 关联会话 cid (`corr-...`) → 写回 CorrelationSession.disposition 并落 history\\n"
+        "- triage session id → 落 history (无会话上下文时也可直接登记)"
+    ),
+)
+async def secops_disposition(session_id: str, req: DispositionRequest) -> JSONResponse:
+    now_iso = _time_mod.strftime("%Y-%m-%dT%H:%M:%S", _time_mod.localtime())
+    record: dict = {
+        "kind": "disposition",
+        "session_id": session_id,
+        "disposition": {
+            "action": req.action,
+            "note": req.note,
+            "verdict": req.verdict,
+            "ts": now_iso,
+        },
+        "finished_at": now_iso,
+    }
+
+    # 关联会话: 写回会话文件 (corr- 前缀且会话存在时)
+    if session_id.startswith("corr-"):
+        session = corr.get_session(session_id)
+        if session is None:
+            return JSONResponse(status_code=404, content={
+                "detail": f"关联会话不存在: {session_id}"})
+        session.disposition = record["disposition"]
+        corr.save_session(session)
+        if session.report:
+            record["report_verdict"] = session.report.get("verdict", "")
+            record["severity"] = session.report.get("severity", "")
+
+    try:
+        _append_disposition_history(record)
+    except Exception as exc:
+        logger.error(f"[secops] 处置登记落盘失败 session={session_id}: {exc}")
+        return JSONResponse(status_code=500, content={"detail": f"处置登记落盘失败: {exc}"})
+
+    logger.info(
+        f"[secops] 处置登记 session={session_id} action={req.action}"
+    )
+    return {"session_id": session_id, "disposition": record["disposition"], "recorded": True}

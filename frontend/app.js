@@ -257,6 +257,7 @@ window.addEventListener("resize", () => {
     traceResizeTimer = setTimeout(renderTrace, 200);
 });
 let currentSessionId = "";
+let lastSecopsSessionId = "";
 
 // ---- Agent 执行轨迹收集 (流程图数据源) ----
 const aiopsTrace = {
@@ -756,6 +757,7 @@ function handleSecopsEvent(ev) {
         const repEl = document.getElementById("secops-report");
         repEl.classList.remove("hidden");
         repEl.innerHTML = renderMarkdown(d.report || "");
+        document.getElementById("secops-disposition").classList.remove("hidden");
         if (d.verdict) setSecopsVerdict(d.verdict);
         const modeEl = document.getElementById("secops-mode");
         if (modeEl && d.response_mode) {
@@ -1034,6 +1036,7 @@ async function startSecops() {
 
     secopsAbortController = new AbortController();
     const sessionId = `secops-web-${Date.now()}`;
+    lastSecopsSessionId = sessionId;
     try {
         const resp = await fetch(`${API}/secops/triage`, {
             method: "POST",

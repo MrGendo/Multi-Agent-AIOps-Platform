@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css?v=20260917e">
+    <link rel="stylesheet" href="/styles.css?v=20260920a">
 </head>
 <body>
 
@@ -157,7 +157,14 @@
     <!-- ====================== SecOps Tab ====================== -->
     <section id="tab-secops" class="tab-pane hidden">
         <div class="secops-wrap">
-            <!-- 告警输入 -->
+            <!-- 模式切换: 单条研判 ↔ 关联研判 (双态, 无多余按钮) -->
+            <div class="secops-mode-switch">
+                <button id="secops-mode-single" class="mode-chip on" type="button" aria-pressed="true">单条研判</button>
+                <button id="secops-mode-corr" class="mode-chip" type="button" aria-pressed="false">关联研判</button>
+                <span class="mode-switch-hint t-dim">单条: 五阶段流水深查一条告警 · 关联: 聊天式累积多条告警, 出攻击链关联报告</span>
+            </div>
+
+            <!-- 告警输入 (单条模式) -->
             <div class="aiops-inputrow">
                 <textarea id="secops-query" rows="2" spellcheck="false"
                     placeholder="粘贴安全告警: IDS/WAF 事件、可疑行为描述、攻击线索 (IP/hash/域名/CVE 会自动提取为 IOC)…">SSH 暴力破解告警: 来自 203.0.113.42, 10 次失败登录, 目标主机 10.0.0.5 prod-web-01</textarea>
@@ -219,8 +226,15 @@
                 </div>
             </div>
 
-            <!-- 报告 -->
+            <!-- 报告 (单条模式) + 处置登记 -->
             <div id="secops-report" class="prose report-full hidden"></div>
+            <div id="secops-disposition" class="secops-disposition hidden">
+                <span class="t-dim disposition-label">处置登记:</span>
+                <button class="btn-ghost disp-btn" data-action="已处置" title="登记本告警已完成处置">已处置</button>
+                <button class="btn-ghost disp-btn" data-action="误报" title="登记本告警为误报">误报</button>
+                <button class="btn-ghost disp-btn" data-action="搁置" title="登记本告警暂搁置观察">搁置</button>
+                <span id="secops-disp-result" class="t-dim disposition-result"></span>
+            </div>
 
             <!-- 取证引导 (无法判定时) -->
             <div id="secops-guidance" class="panel secops-guidance hidden">
@@ -248,6 +262,39 @@
                     <button id="secops-dlg-send" class="btn-primary">发送</button>
                 </div>
             </div>
+
+            <!-- ============ 关联研判模式 (与单条模式互斥显示) ============ -->
+            <div id="secops-corr-wrap" class="panel secops-corr hidden">
+                <div class="panel-head">
+                    关联研判
+                    <span id="secops-corr-status" class="t-dim">逐条粘贴告警, 每轮自动取证并做关联分析</span>
+                    <span class="dlg-head-actions">
+                        <button id="secops-corr-report-btn" class="btn-ghost" disabled title="会话至少一轮对话后可生成关联报告">生成报告</button>
+                    </span>
+                </div>
+                <div id="secops-corr-messages" class="chat-messages scroll-pane secops-corr-msgs">
+                    <span class="placeholder text-center italic">粘贴第一条告警开启关联会话 (同源 IP / 同一攻击链的多条告警效果最佳)</span>
+                </div>
+                <div class="chat-input-row">
+                    <input id="secops-corr-input" type="text" spellcheck="false"
+                        placeholder="粘贴/输入一条告警或观察 (每轮自动提取 IOC 并按需取证)…" />
+                    <button id="secops-corr-send" class="btn-primary">发送</button>
+                </div>
+            </div>
+
+            <!-- 关联报告区 -->
+            <div id="secops-corr-report" class="prose report-full hidden"></div>
+            <div id="secops-corr-report-actions" class="secops-disposition hidden">
+                <span class="t-dim disposition-label">报告操作:</span>
+                <button id="secops-corr-copy" class="btn-ghost disp-btn">复制</button>
+                <button id="secops-corr-export" class="btn-ghost disp-btn">导出 .md</button>
+                <span class="t-dim disposition-label" style="margin-left:16px">处置登记:</span>
+                <button class="btn-ghost disp-btn corr-disp" data-action="已处置">已处置</button>
+                <button class="btn-ghost disp-btn corr-disp" data-action="误报">误报</button>
+                <button class="btn-ghost disp-btn corr-disp" data-action="搁置">搁置</button>
+                <span id="secops-corr-disp-result" class="t-dim disposition-result"></span>
+            </div>
+            <div id="secops-corr-cost" class="secops-cost mono hidden"></div>
 
             <!-- 历史研判对话 -->
             <div class="panel secops-history-panel">
@@ -336,6 +383,7 @@
     <div id="drawer-body" class="drawer-body prose scroll-pane"></div>
 </aside>
 
-<script src="/app.js?v=20260917e"></script>
+<script src="/app.js?v=20260920a"></script>
+<script src="/correlation.js?v=20260920a"></script>
 </body>
 </html>

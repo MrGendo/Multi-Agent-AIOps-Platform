@@ -848,3 +848,110 @@ body {
 /* 图片上传按钮 */
 .img-upload-btn { cursor: pointer; user-select: none; }
 .hidden-file-input { display: none; }
+
+/* ============ SecOps 模式切换 (单条研判 ↔ 关联研判) ============ */
+.secops-mode-switch {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255, 255, 255, .02); border: 1px solid var(--border-subtle);
+    border-radius: 10px; padding: 6px 8px;
+}
+:root[data-theme="light"] .secops-mode-switch { background: rgba(0, 0, 0, .02); }
+.mode-chip {
+    padding: 6px 16px; font-size: 12.5px; font-weight: 510; color: var(--text-4);
+    background: transparent; border: 1px solid transparent; border-radius: 9999px;
+    cursor: pointer; white-space: nowrap;
+    transition: color .15s, border-color .15s, background .15s;
+}
+.mode-chip:hover { color: var(--text-2); }
+.mode-chip.on {
+    color: var(--accent-hover); border-color: rgba(113, 112, 255, 0.5);
+    background: rgba(94, 106, 210, 0.1); font-weight: 600;
+}
+.mode-switch-hint { font-size: 11px; margin-left: 6px; }
+@media (max-width: 860px) { .mode-switch-hint { display: none; } }
+
+/* ============ 关联研判聊天流 ============ */
+.secops-corr { display: flex; flex-direction: column; }
+.secops-corr .chat-input-row { padding: 8px 14px 12px; margin: 0; }
+.secops-corr-msgs { min-height: 200px; max-height: 420px; height: 320px; }
+/* 输入框复用单条研判输入样式 (ID 选择器并列, 2026-09-17 白底事故教训) */
+#secops-corr-input {
+    flex: 1; padding: 10px 12px; font-size: 13px; color: var(--text-1);
+    background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border);
+    border-radius: 8px; outline: none; font-family: inherit;
+}
+#secops-corr-input:focus { border-color: rgba(113, 112, 255, 0.55); }
+#secops-corr-input::placeholder { color: var(--text-4); }
+
+/* 已收录告警系统行 */
+.corr-sys-row {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 5px 10px; border-radius: 7px; margin-bottom: 8px;
+    background: rgba(94, 106, 210, 0.07); border: 1px dashed rgba(94, 106, 210, 0.35);
+    font-size: 12px; color: var(--text-2); word-break: break-all;
+}
+.corr-sys-row .f-tag { flex: 0 0 auto; }
+
+/* 工具调用折叠卡 (复用 secops-findings 工具卡形态) */
+.corr-tool-card { margin-bottom: 10px; font-size: 12.5px; }
+.corr-tool-head {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    padding: 5px 10px; border-radius: 7px; user-select: none;
+    background: rgba(255, 255, 255, .03); border: 1px solid var(--border);
+}
+:root[data-theme="light"] .corr-tool-head { background: rgba(0, 0, 0, .03); }
+.corr-tool-head:hover { border-color: rgba(113, 112, 255, 0.4); }
+.corr-tool-caret { flex: 0 0 auto; color: var(--text-4); font-size: 10px; transition: transform .15s; }
+.corr-tool-card.open .corr-tool-caret { transform: rotate(90deg); }
+.corr-tool-name { font-family: var(--mono); font-size: 12px; color: var(--accent-hover); }
+.corr-tool-args { flex: 1; min-width: 0; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.corr-tool-body {
+    display: none; margin-top: 4px; padding: 8px 10px; border-radius: 7px;
+    background: rgba(255, 255, 255, .03); border: 1px solid var(--border-subtle);
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.6;
+    color: var(--text-2); white-space: pre-wrap; word-break: break-word;
+}
+:root[data-theme="light"] .corr-tool-body { background: rgba(0, 0, 0, .03); }
+.corr-tool-card.open .corr-tool-body { display: block; }
+
+/* 关联报告: 攻击链时间线 */
+.corr-report h3, .corr-report h4 { margin: 14px 0 8px; }
+.corr-chain { list-style: none; margin: 8px 0; padding: 0; position: relative; }
+.corr-chain::before {
+    content: ""; position: absolute; left: 7px; top: 10px; bottom: 10px; width: 2px;
+    background: linear-gradient(180deg, var(--red), var(--amber), var(--accent));
+    opacity: .45; border-radius: 2px;
+}
+.corr-chain li {
+    position: relative; padding: 4px 0 4px 28px; font-size: 13px; line-height: 1.6;
+    color: var(--text-2);
+}
+.corr-chain li::before {
+    content: ""; position: absolute; left: 2px; top: 11px; width: 8px; height: 8px;
+    border-radius: 50%; background: var(--accent); border: 2px solid var(--bg);
+}
+.corr-chain li:first-child::before { background: var(--red); }
+.corr-chain li:last-child::before { background: var(--amber); }
+
+/* 关联点卡片 */
+.corr-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin: 8px 0; }
+.corr-card {
+    padding: 10px 12px; border-radius: 9px;
+    background: rgba(255, 255, 255, .02); border: 1px solid var(--border);
+    font-size: 12.5px; line-height: 1.6;
+}
+:root[data-theme="light"] .corr-card { background: rgba(0, 0, 0, .02); }
+.corr-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.corr-card-link { color: var(--text-2); }
+
+/* 报告操作 / 处置登记行 */
+.secops-disposition {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 8px 0 2px; border-top: 1px dashed var(--border-subtle); margin-top: 4px;
+}
+.disposition-label { font-size: 11.5px; }
+.disposition-result { font-size: 11.5px; margin-left: 4px; }
+
+/* 成本行 (小字) */
+.secops-cost { font-size: 11px; color: var(--text-4); margin-top: -6px; }
+
