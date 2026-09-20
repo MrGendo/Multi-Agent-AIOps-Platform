@@ -239,3 +239,85 @@ document.querySelectorAll(".corr-disp").forEach((btn) => {
         submitDisposition(btn.dataset.action, document.getElementById("secops-corr-disp-result"), "corr");
     });
 });
+
+// ============================================================
+// 历史研判记录管理 (防堆积): 统计弹层 + 策略化清理 + 单条删除
+// ============================================================
+function fmtKB(bytes) {
+    if (!bytes) return "0 B";
+    return bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + " MB" : (bytes / 1024).toFixed(0) + " KB";
+}
+
+async function loadHistoryStats() {
+    const el = document.getElementById("secops-hm-stats");
+    try {
+        const resp = await fetch(`${API}/secops/history/stats`);
+        const s = await resp.json();
+        const rows = [
+            ["研判历史 (jsonl)", s.history],
+            ["研判对话会话", s.dialogue],
+            ["关联研判会话", s.correlation],
+        ].map(([name, st]) => {
+            const oldest = st.oldest_ts ? new Date(st.oldest_ts * 1000).toLocaleDateString("zh-CN") : "—";
+            return `<div class="hm-stat-row"><span>${name}</span><span>${st.count} 条 · ${fmtKB(st.size_bytes)} · 最早 ${oldest}</span></div>`;
+        }).join("");
+        el.innerHTML = rows;
+    } catch (e) {
+        el.innerHTML = `统计加载失败: ${escapeHtml(e.message)}`;
+    }
+}
+
+document.getElementById("secops-history-mgmt").addEventListener("click", () => {
+    document.getElementById("secops-history-mgmt-modal").classList.remove("hidden");
+    loadHistoryStats();
+});
+document.getElementById("secops-hm-close").addEventListener("click", () => {
+    document.getElementById("secops-history-mgmt-modal").classList.add("hidden");
+    loadSecopsHistory(); // 关闭时刷新列表 (可能有删除)
+});
+
+document.getElementById("secops-hm-run").addEventListener("click", async () => {
+    const targets = [];
+    if (document.getElementById("secops-hm-t-dialogue").checked) targets.push("dialogue");
+    if (document.getElementById("secops-hm-t-correlation").checked) targets.push("correlation");
+    if (document.getElementById("secops-hm-t-history").checked) targets.push("history");
+    const resultEl = document.getElementById("secops-hm-result");
+    if (!targets.length) { resultEl.textContent = "请至少选择一个类别"; return; }
+    const keepDays = parseInt(document.getElementById("secops-hm-keep-days").value) || 0;
+    const keepLast = parseInt(document.getElementById("secops-hm-keep-last").value) || 0;
+    if (!confirm(`确认清理? 将保留最近 ${keepDays || "∞"} 天且最近 ${keepLast || "∞"} 条 (勾选保护时已处置登记记录不删). 此操作不可恢复.`)) return;
+    resultEl.textContent = "清理中…";
+    try {
+        const resp = await fetch(`${API}/secops/history/purge`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                targets,
+                keep_days: keepDays,
+                keep_last: keepLast,
+                keep_disposition: document.getElementById("secops-hm-keep-disp").checked,
+            }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+        const d = data.deleted || {};
+        resultEl.textContent = `已清理 — 对话 ${d.dialogue || 0} · 关联 ${d.correlation || 0} · 历史 ${d.history || 0} 条`;
+        loadHistoryStats();
+    } catch (e) {
+        resultEl.textContent = `清理失败: ${e.message}`;
+    }
+});
+
+// 单条删除 (历史会话列表 hover 出现的 ×)
+async function deleteHistorySession(sid) {
+    if (!confirm(`删除会话 ${sid}? 不可恢复.`)) return;
+    const isDlg = !sid.startsWith("corr-");
+    const url = isDlg ? `${API}/secops/dialogue/${encodeURIComponent(sid)}` : `${API}/secops/correlation/${encodeURIComponent(sid)}`;
+    try {
+        const resp = await fetch(url, { method: "DELETE" });
+        if (!resp.ok && resp.status !== 404) throw new Error(`HTTP ${resp.status}`);
+        loadSecopsHistory();
+    } catch (e) {
+        alert(`删除失败: ${e.message}`);
+    }
+}

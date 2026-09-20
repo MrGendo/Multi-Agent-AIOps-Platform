@@ -301,9 +301,43 @@
                 <div class="panel-head">
                     历史研判对话
                     <button id="secops-history-refresh" class="link-btn">刷新</button>
+                    <button id="secops-history-mgmt" class="link-btn">管理</button>
                 </div>
                 <div id="secops-history-list" class="secops-history-list scroll-pane">
                     <span class="placeholder">暂无历史会话</span>
+                </div>
+            </div>
+
+            <!-- 历史管理弹层 -->
+            <div id="secops-history-mgmt-modal" class="modal-mask hidden">
+                <div class="modal-box">
+                    <div class="modal-head">
+                        <h3>历史研判记录管理</h3>
+                        <button id="secops-hm-close" class="link-btn">关闭</button>
+                    </div>
+                    <div id="secops-hm-stats" class="hm-stats mono"></div>
+                    <div class="hm-form">
+                        <div class="hm-row">
+                            <span class="t-dim">清理类别:</span>
+                            <label><input type="checkbox" id="secops-hm-t-dialogue" checked> 研判对话</label>
+                            <label><input type="checkbox" id="secops-hm-t-correlation" checked> 关联会话</label>
+                            <label><input type="checkbox" id="secops-hm-t-history"> 研判历史 (jsonl)</label>
+                        </div>
+                        <div class="hm-row">
+                            <span class="t-dim">保留策略:</span>
+                            <label>最近 <input type="number" id="secops-hm-keep-days" min="0" max="3650" value="30" style="width:64px"> 天</label>
+                            <label>且最近 <input type="number" id="secops-hm-keep-last" min="0" max="100000" value="100" style="width:72px"> 条</label>
+                        </div>
+                        <div class="hm-row">
+                            <label title="带处置登记(已处置/误报/搁置)的历史行永不清理 — 人工反馈最贵">
+                                <input type="checkbox" id="secops-hm-keep-disp" checked> 保护已处置登记的记录
+                            </label>
+                        </div>
+                        <div class="hm-actions">
+                            <button id="secops-hm-run" class="btn-primary">执行清理</button>
+                            <span id="secops-hm-result" class="t-dim"></span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

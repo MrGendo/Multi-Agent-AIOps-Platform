@@ -229,6 +229,22 @@ def get_session(cid: str) -> Optional[CorrelationSession]:
     return None
 
 
+def delete_session(cid: str) -> bool:
+    """删除关联会话 (内存 + 磁盘). 返回是否删除成功."""
+    _sessions.pop(cid, None)
+    path = CORRELATION_DIR / f"{cid}.json"
+    existed = path.exists()
+    if existed:
+        try:
+            path.unlink()
+        except Exception as exc:
+            logger.warning(f"[Correlation] 会话文件删除失败 {cid}: {exc}")
+            return False
+    if existed:
+        logger.info(f"[Correlation] 会话已删除 {cid}")
+    return existed
+
+
 def list_sessions(limit: int = 20) -> List[Dict[str, Any]]:
     """关联会话列表 (按创建时间倒序): cid/created_at/alerts 数/status/verdict 概要."""
     _ensure_dir()

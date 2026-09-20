@@ -887,10 +887,14 @@ async function loadSecopsHistory() {
                 <span class="h-verdict">${escapeHtml(v)}</span>
                 <span class="h-alert truncate">${escapeHtml(it.alert_text || "")}</span>
                 <span class="h-meta">${it.turns} 轮 · ${escapeHtml(time)}</span>
+                <button class="link-btn h-del" data-sid="${escapeHtml(it.session_id)}" title="删除此会话">×</button>
             </div>`;
         }).join("");
         list.querySelectorAll(".history-item").forEach((el) => {
             el.addEventListener("click", () => openHistoryDialogue(el.dataset.sid));
+        });
+        list.querySelectorAll(".h-del").forEach((btn) => {
+            btn.addEventListener("click", (e) => { e.stopPropagation(); deleteHistorySession(btn.dataset.sid); });
         });
     } catch (e) {
         list.innerHTML = `<span class="placeholder">加载失败: ${escapeHtml(e.message)}</span>`;

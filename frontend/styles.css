@@ -964,3 +964,17 @@ body {
 }
 .cross-domain-hint .cdh-text { font-size: 13px; line-height: 1.5; }
 
+
+/* 历史管理弹层 */
+.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 200; }
+.modal-box { background: var(--bg-2, #1b1e27); border: 1px solid var(--border, #2a2e3a); border-radius: 12px; padding: 18px 22px; width: min(520px, 92vw); }
+.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.modal-head h3 { margin: 0; font-size: 15px; }
+.hm-stats { font-size: 12px; border: 1px dashed var(--border, #2a2e3a); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+.hm-stat-row { display: flex; justify-content: space-between; padding: 3px 0; }
+.hm-form .hm-row { display: flex; align-items: center; gap: 14px; padding: 6px 0; font-size: 13px; flex-wrap: wrap; }
+.hm-form input[type="number"] { background: var(--bg-1, #12141b); color: var(--text-1, #e6e6e6); border: 1px solid var(--border, #2a2e3a); border-radius: 6px; padding: 3px 6px; }
+.hm-actions { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.history-item { position: relative; }
+.history-item .h-del { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); opacity: 0; transition: opacity .15s; padding: 0 6px; }
+.history-item:hover .h-del { opacity: .85; }

@@ -460,3 +460,69 @@ async def secops_disposition(session_id: str, req: DispositionRequest) -> JSONRe
         f"[secops] 处置登记 session={session_id} action={req.action}"
     )
     return {"session_id": session_id, "disposition": record["disposition"], "recorded": True}
+
+
+# ============================================================
+# 历史研判记录管理 (防堆积): 统计 / 策略化清理 / 单条删除
+# ============================================================
+from app.security import history_mgmt  # noqa: E402
+
+
+class HistoryPurgeRequest(BaseModel):
+    """历史清理请求."""
+
+    targets: list[str] = Field(
+        default=["dialogue", "correlation"],
+        description="要清理的存储类别: history / dialogue / correlation (多选)",
+    )
+    keep_days: int = Field(default=0, ge=0, le=3650, description="保留最近 N 天 (0=不限)")
+    keep_last: int = Field(default=0, ge=0, le=100000, description="保留最近 N 条 (0=不限)")
+    keep_disposition: bool = Field(
+        default=True,
+        description="history 类: 带 disposition (人工处置登记) 的行永不清理 (默认保护)",
+    )
+
+
+@router.get("/history/stats", summary="历史存储统计 — 三类存储条数/体积/时间范围")
+async def secops_history_stats():
+    return history_mgmt.get_stats()
+
+
+@router.post(
+    "/history/purge",
+    summary="历史清理 — 按类别与保留策略清理 (防堆积)",
+    description=(
+        "targets 可多选 history/dialogue/correlation; keep_days/keep_last 组合使用 "
+        "(双 0 + keep_disposition=true 时 history 只清无处置登记的行)."
+        "清理不可恢复, 前端有二次确认."
+    ),
+)
+async def secops_history_purge(req: HistoryPurgeRequest):
+    valid = {"history", "dialogue", "correlation"}
+    bad = [t for t in req.targets if t not in valid]
+    if bad:
+        return JSONResponse(status_code=422, content={"detail": f"未知类别: {bad}"})
+    if not req.targets:
+        return JSONResponse(status_code=422, content={"detail": "targets 不能为空"})
+    return history_mgmt.purge(
+        targets=req.targets,
+        keep_days=req.keep_days,
+        keep_last=req.keep_last,
+        keep_disposition=req.keep_disposition,
+    )
+
+
+@router.delete("/dialogue/{session_id}", summary="删除单个研判对话会话")
+async def secops_dialogue_delete(session_id: str):
+    ok = sec_dialogue.delete_session(session_id)
+    if not ok:
+        return JSONResponse(status_code=404, content={"detail": f"会话不存在: {session_id}"})
+    return {"deleted": session_id}
+
+
+@router.delete("/correlation/{cid}", summary="删除单个关联研判会话")
+async def secops_correlation_delete(cid: str):
+    ok = corr.delete_session(cid)
+    if not ok:
+        return JSONResponse(status_code=404, content={"detail": f"会话不存在: {cid}"})
+    return {"deleted": cid}

@@ -193,6 +193,23 @@ def get_session(session_id: str) -> Optional[TriageSession]:
     return None
 
 
+def delete_session(session_id: str) -> bool:
+    """删除单个对话会话 (内存 + 磁盘). 返回是否删除成功."""
+    s = _sessions.pop(session_id, None)
+    path = SESSIONS_DIR / f"{session_id}.json"
+    existed = path.exists()
+    if existed:
+        try:
+            path.unlink()
+        except Exception as exc:
+            logger.warning(f"[SecDialogue] 会话文件删除失败 {session_id}: {exc}")
+            return False
+    if s is not None or existed:
+        logger.info(f"[SecDialogue] 会话已删除 {session_id}")
+        return True
+    return False
+
+
 def list_sessions(limit: int = 50) -> List[Dict[str, Any]]:
     """历史研判对话列表 (按更新时间倒序)."""
     _ensure_dir()
