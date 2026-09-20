@@ -228,6 +228,10 @@ class CorrelationRequest(BaseModel):
 
     cid: str = Field(default="", description="会话 id (空则服务端新建 corr-<ts>-<rand4>)")
     message: str = Field(..., min_length=1, max_length=8000, description="本条告警/观察输入")
+    model: str = Field(
+        default="",
+        description="可选: 覆盖 LLM 模型名 (如 qwen-plus; 空=默认配置). 主要用于主模型限流时的降级验证/运维.",
+    )
 
 
 @router.post(
@@ -276,7 +280,7 @@ async def secops_correlation_turn(req: CorrelationRequest) -> EventSourceRespons
             await emit(event_type, data)
 
         async def pump() -> None:
-            await corr.correlation_turn(cid, req.message, emit=emit_and_track)
+            await corr.correlation_turn(cid, req.message, emit=emit_and_track, model=req.model)
 
         task = asyncio.get_event_loop().create_task(pump())
         while not (task.done() and not yield_queue):
@@ -332,6 +336,12 @@ async def secops_correlation_detail(cid: str) -> JSONResponse:
     }
 
 
+class CorrelationReportBody(BaseModel):
+    """关联报告生成请求 (可选 body)."""
+
+    model: str = Field(default="", description="可选: 覆盖 LLM 模型名 (降级验证用)")
+
+
 @router.post(
     "/correlation/{cid}/report",
     summary="关联研判 — 生成最终关联报告 (SSE 流式; accept: application/json 返回 JSON)",
@@ -341,7 +351,7 @@ async def secops_correlation_detail(cid: str) -> JSONResponse:
         "**SSE 事件**: `corr_report` {cid, report} | `corr_error` {cid, message} | `complete`."
     ),
 )
-async def secops_correlation_report(cid: str, request: Request):
+async def secops_correlation_report(cid: str, request: Request, req: CorrelationReportBody | None = None):
     import time as _t
 
     started = _t.monotonic()
@@ -350,7 +360,7 @@ async def secops_correlation_report(cid: str, request: Request):
         async def emit(event_type: str, data: dict) -> None:
             pass  # 事件由返回值统一透出 (见下)
 
-        report = await corr.generate_correlation_report(cid, emit=None)
+        report = await corr.generate_correlation_report(cid, emit=None, model=(req.model if req else ""))
         etype = "corr_error" if report.get("error") else "corr_report"
         yield {"event": "message", "data": json.dumps(
             {"type": etype, "cid": cid, ("report" if etype == "corr_report" else "message"):
@@ -363,7 +373,7 @@ async def secops_correlation_report(cid: str, request: Request):
             ensure_ascii=False)}
 
     if "application/json" in (request.headers.get("accept") or ""):
-        report = await corr.generate_correlation_report(cid, emit=None)
+        report = await corr.generate_correlation_report(cid, emit=None, model=(req.model if req else ""))
         status = 404 if report.get("error") == "session_not_found" else 200
         return JSONResponse(status_code=status, content=report)
     return EventSourceResponse(event_generator())

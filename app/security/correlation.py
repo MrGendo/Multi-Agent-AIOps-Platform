@@ -472,7 +472,7 @@ def _normalize_answer(answer: CorrelationAnswer, cid: str) -> dict:
     }
 
 
-async def correlation_turn(cid: str, user_input: str, *, emit: Optional[EmitFn] = None) -> dict:
+async def correlation_turn(cid: str, user_input: str, *, emit: Optional[EmitFn] = None, model: str = "") -> dict:
     """处理一轮关联研判对话, 返回 answer dict (spec 契约签名).
 
     流程: 提取 IOC → 追加告警 → prompt → ReAct 工具 → structured 答案 → 落盘.
@@ -522,13 +522,13 @@ async def correlation_turn(cid: str, user_input: str, *, emit: Optional[EmitFn] 
             {"role": "system", "content": base[0]["content"]},
             HumanMessage(content=base[1]["content"]),
         ]
-        llm = get_chat_llm(temperature=0, timeout=120, max_retries=3)
+        llm = get_chat_llm(model=model or None, temperature=0, timeout=120, max_retries=3)
         tools_used = await _run_react_tools(react_messages, llm, tools, emit=emit, cid=cid)
         tool_findings = _extract_tool_findings(react_messages)
 
     # ④ structured output
     try:
-        llm = get_chat_llm(temperature=0, timeout=120, max_retries=3)
+        llm = get_chat_llm(model=model or None, temperature=0, timeout=120, max_retries=3)
         answer: CorrelationAnswer = await ainvoke_structured(
             llm=llm,
             schema_cls=CorrelationAnswer,
@@ -596,7 +596,7 @@ def _normalize_report(report: CorrelationReport, cid: str) -> dict:
     }
 
 
-async def generate_correlation_report(cid: str, *, emit: Optional[EmitFn] = None) -> dict:
+async def generate_correlation_report(cid: str, *, emit: Optional[EmitFn] = None, model: str = "") -> dict:
     """把会话内全部告警做攻击链关联总结, 出统一 incident 报告 (spec 契约签名).
 
     status → reported, report 落库, 返回报告 dict.
@@ -613,7 +613,7 @@ async def generate_correlation_report(cid: str, *, emit: Optional[EmitFn] = None
         return {"cid": cid, "error": "no_alerts", "message": "会话内尚无告警, 无法生成报告"}
 
     try:
-        llm = get_chat_llm(temperature=0, timeout=120, max_retries=3)
+        llm = get_chat_llm(model=model or None, temperature=0, timeout=120, max_retries=3)
         report: CorrelationReport = await ainvoke_structured(
             llm=llm,
             schema_cls=CorrelationReport,
