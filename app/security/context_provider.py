@@ -73,7 +73,8 @@ def _load_security_history() -> List[Dict[str, Any]]:
                     rec = json.loads(line)
                 except Exception:
                     continue
-                if rec.get("alert", {}).get("kind") == "security":
+                # security 研判记录 + disposition 处置登记 (反哺上下文用)
+                if rec.get("alert", {}).get("kind") == "security" or rec.get("kind") == "disposition":
                     records.append(rec)
         return records[-_MAX_HISTORY_RECORDS:]
     except Exception as exc:
@@ -177,8 +178,18 @@ def build_prior_history_context(iocs: Dict[str, List[str]]) -> str:
         return ""
 
     lines: List[str] = []
+    # 人工处置登记 (kind=disposition) 按 session_id 关联到研判记录:
+    # 人的「误报/已处置」反馈是最强的纠偏信号, 必须进 Analyst 上下文
+    disp_by_session: Dict[str, str] = {}
+    for rec in history:
+        if rec.get("kind") == "disposition":
+            act = (rec.get("disposition") or {}).get("action", "")
+            if act:
+                disp_by_session[rec.get("session_id", "")] = act
+
     for ip in ips:
         verdicts: List[str] = []
+        disp_actions: List[str] = []
         for rec in history:
             alert = rec.get("alert", {})
             # 匹配: 告警 query 或 src_ip 字段含该 IP
@@ -186,20 +197,34 @@ def build_prior_history_context(iocs: Dict[str, List[str]]) -> str:
                 v = rec.get("verdict")
                 if v:
                     verdicts.append(v)
+                act = disp_by_session.get(rec.get("session_id", ""))
+                if act:
+                    disp_actions.append(act)
         if not verdicts:
             continue
         counts: Dict[str, int] = {}
         for v in verdicts:
             counts[v] = counts.get(v, 0) + 1
         summary = ", ".join(f"{k} x{cnt}" for k, cnt in sorted(counts.items()))
-        lines.append(f"- {ip}: {len(verdicts)} 次历史研判 ({summary})")
+        disp_summary = ""
+        if disp_actions:
+            dcounts: Dict[str, int] = {}
+            for a in disp_actions:
+                dcounts[a] = dcounts.get(a, 0) + 1
+            disp_txt = ", ".join(
+                f"{'人工标记误报' if a == 'false_positive' else '人工已处置' if a == 'resolved' else '人工搁置'} x{c}"
+                for a, c in sorted(dcounts.items())
+            )
+            disp_summary = f"; 其中 {disp_txt}"
+        lines.append(f"- {ip}: {len(verdicts)} 次历史研判 ({summary}{disp_summary})")
 
     if not lines:
         return ""
 
     return (
-        "**PRIOR TRIAGE HISTORY (仅供参考, 不是 disposition):**\n"
+        "**PRIOR TRIAGE HISTORY (含人工处置反馈, 仅供参考, 不是 disposition):**\n"
         + "\n".join(lines)
         + "\n纪律: 先前 benign 不是降低排查力度的理由, 先前 malicious 也不能作为本次定罪的证据 — "
+        "人工误报标记表示「上次疑似攻击被人工排除」, 提示优先核对同类误报特征, 但仍须本次证据独立确认 — "
         "你必须基于本次告警自己的证据独立研判 (历史只影响你先看哪里)."
     )

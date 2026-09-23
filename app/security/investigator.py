@@ -146,7 +146,8 @@ async def run_investigation(alert_text: str, objective: str, context: str = "") 
                     result = f"工具执行失败: {exc}"
                 # result 是 ToolMessage — 取 .content (str(obj) 只有类名)
                 result_text = str(getattr(result, "content", result))[:1500]
-                tool_log.append(f"{name}: {result_text[:200]}")
+                # 留痕记全长 (服务日志审计用); 给 LLM 的 result_text 已单独截断
+                tool_log.append(f"{name} → {result_text}")
                 messages.append({"role": "tool", "tool_call_id": tc.get("id", ""), "content": result_text})
     except Exception as exc:
         logger.warning(f"[Investigator] ReAct 执行异常 (fail-soft): {exc}")
@@ -167,6 +168,13 @@ async def run_investigation(alert_text: str, objective: str, context: str = "") 
     except Exception as exc:
         logger.warning(f"[Investigator] 结果压缩失败, 退化原始摘要: {exc}")
         out = f"[调查目标] {objective}\n[工具记录]\n" + "\n".join(tool_log[:8])[:_MAX_FINDING_CHARS]
+
+    # 完整工具 I/O 落服务日志 (审计回溯: 决策者只看压缩摘要, 但原始证据
+    # 必须留痕 — 事后复核/取证需要时能在日志里还原全部调用)
+    if tool_log:
+        logger.info(
+            "[Investigator] 工具调用留痕:\n" + "\n".join(tool_log)
+        )
 
     logger.info(f"[Investigator] 调查完成 ({len(out)} 字, 工具 {len(tool_log)} 次)")
     return out

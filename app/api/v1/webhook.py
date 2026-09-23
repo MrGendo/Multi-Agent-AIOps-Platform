@@ -79,6 +79,9 @@ class AlertmanagerPayload(BaseModel):
 HISTORY_DIR = Path(__file__).resolve().parents[3] / "data"
 HISTORY_FILE = HISTORY_DIR / "alert_history.jsonl"
 
+# 设备告警指纹去重窗口 (同指纹 5 分钟内只研判一次; 幂等防重复烧 token)
+_DEDUP_WINDOW_SEC = 300
+
 
 def _ensure_history_dir():
     HISTORY_DIR.mkdir(parents=True, exist_ok=True)
@@ -393,7 +396,8 @@ async def security_webhook(
     """安全告警统一入口 (后台研判, 与 Alertmanager 路径同构).
 
     自动识别原生格式: Wazuh ({"alert":{...}}/裸 alert dict) / Suricata EVE
-    ({"event_type":"alert"}) / Falco ({"rule","output","priority"}) 自动归一化;
+    ({"event_type":"alert"}) / Falco ({"rule","output","priority"}) / 长亭雷池
+    (deny_count+pass_count 聚合事件) / CEF 文本 自动归一化;
     未识别结构走通用 SecurityAlertPayload schema.
     """
     raw: Dict[str, Any] = {}
@@ -420,6 +424,29 @@ async def security_webhook(
     text = _format_security_alert_as_query(payload)
     session_id = f"security-{payload.source}-{payload.fingerprint or payload.rule[:24]}"
     logger.info(f"[webhook] 安全告警格式识别: {detected}")
+
+    # 幂等去重 (滑动窗口 TTL): 设备侧重发/网络重试很常见, 同指纹在窗口内
+    # 只触发一次研判 — 重复研判烧整条流水 token, 必须在入口挡住.
+    fp = payload.fingerprint or f"{payload.source}-{payload.rule}-{payload.src_ip}-{payload.description[:80]}"
+    now = time.time()
+    _seen_fp = getattr(security_webhook, "_seen_fp", None)
+    if _seen_fp is None:
+        _seen_fp = {}
+        security_webhook._seen_fp = _seen_fp  # type: ignore[attr-defined]
+    # 清理过期项 (简单滑动窗口, 防 dict 无限增长)
+    for k in [k for k, ts in _seen_fp.items() if now - ts > _DEDUP_WINDOW_SEC]:
+        _seen_fp.pop(k, None)
+    if fp in _seen_fp:
+        record_alert_deduplicated()
+        logger.info(f"[webhook] 安全告警重复指纹跳过 ({fp[:48]}…, 窗口 {_DEDUP_WINDOW_SEC}s)")
+        return {
+            "status": "accepted",
+            "received": 1,
+            "triggered": [],
+            "skipped": [f"{payload.rule or 'security_alert'} (dedup)"],
+        }
+    _seen_fp[fp] = now
+
     alert_meta = {
         "kind": "security",
         "source": payload.source,
