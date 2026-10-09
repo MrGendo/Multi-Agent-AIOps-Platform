@@ -1,6 +1,6 @@
 # AIOps × SecOps Platform — 项目全景说明（AI 应用开发简历素材）
 
-> 初写于 2026-09-10，2026-09-17 随 SecOps 安全域合并大幅更新，2026-09-18/20 第三版（决策/执行分离+三层记忆、对话式关联研判+处置登记闭环、国内设备接入雷池+CEF、图片证据、历史管理）。内容全部取自仓库真实状态与可溯源记录：git 提交历史（2026-05-17 起）、离线测试全量实跑（389 例全绿）、CI 六道门禁留痕、真实 E2E 运行记录。
+> 初写于 2026-09-10，2026-09-17 随 SecOps 安全域合并大幅更新，2026-09-18/20 第三版（决策/执行分离+三层记忆、对话式关联研判+处置登记闭环、国内设备接入雷池+CEF、图片证据、历史管理）。内容全部取自仓库真实状态与可溯源记录：git 提交历史（2026-05-17 起）、离线测试全量实跑（395 例全绿）、CI 六道门禁留痕、真实 E2E 运行记录。
 > 用途：AI 应用开发岗位的简历项目素材与面试准备。每个数字可溯源，含「可直接抄的写法」与「诚实边界」。
 
 ---
@@ -104,15 +104,15 @@ flowchart TD
 
 ### 2.3 SecOps 域端到端数据流（九阶段）
 
-1. **设备原生告警接入**（`app/security/device_adapters.py` + `POST /api/v1/webhook/security`）：自动识别 **Wazuh**（rule.level 0-15 → 四档 severity）/ **Suricata EVE**（含 http/dns 元数据增强 IOC）/ **Falco**（output_fields 提取源 IP）/ **长亭雷池 SafeLine**（开放 API 聚合事件，格式取自官方仓库 Go 结构体，deny_count/pass_count 指纹识别，`scripts/poll_safeline.py` 拉取器幂等去重）/ **CEF 通用格式**（ArcSight 事实标准，8 段头+逐字符状态机解析 extension——一个适配器覆盖天眼/绿盟/深信服等一切支持 CEF 导出的国产设备）原生 payload 并归一化；未识别格式走通用 schema。设备侧接法见 `docs/DEVICE_ONBOARDING.md`。
+1. **设备原生告警接入**（`app/security/device_adapters.py` + `POST /api/v1/webhook/security`）：自动识别 **Wazuh**（rule.level 0-15 → 四档 severity）/ **Suricata EVE**（含 http/dns 元数据增强 IOC）/ **Falco**（output_fields 提取源 IP）/ **长亭雷池 SafeLine**（开放 API 聚合事件，格式取自官方仓库 Go 结构体，deny_count/pass_count 指纹识别，`scripts/poll_safeline.py` 拉取器幂等去重）/ **CEF 通用格式**（ArcSight 事实标准，8 段头+逐字符状态机解析 extension——一个适配器覆盖天眼/绿盟/深信服等一切支持 CEF 导出的国产设备）原生 payload 并归一化；未识别格式走通用 schema；入口指纹幂等（fingerprint 滑动窗口 300s，设备重发不重复烧研判流水）。设备侧接法见 `docs/DEVICE_ONBOARDING.md`。
 2. **统一域分类**（`app/security/domain_classifier.py`）：中英文关键词命中数快路径（confidence 0.9）→ 未命中走 LLM；平局归 security 宁严勿漏；LLM 失败 fail-open 到 ops（存量主路径）。ops 域透明转投 `aiops_service.stream_diagnose`（零改动复用）；**反向跨域提示**（`app/agents/security_signals.py`）：AIOps 诊断报告含安全特征词（挖矿/后门/webshell/C2 等 14 类）时 SSE 追加 cross_domain_hint，前端提示条+一键转 SecOps 预填（只提示不自动转）。
 3. **Triage 初筛**：LLM 结构化分类（alert_type 九类/severity/是否值得深查）；明显误报（授权扫描器+报备变更单+测试网段）直接 skip 出 benign 报告——**零深查 token**（安全域的诚实止损对称物）；LLM 失败 fail-严继续调查（宁严勿漏）。
 4. **Scout 取证**：纯正则 IOC 提取（IPv4 可过滤 RFC1918/MD5-SHA1-SHA256 长优先/域名 TLD 白名单/CVE/URL，全部去重保序）+ 启发式异常分（IOC 密度加权）+ 威胁情报富化（走 web_search provider，fail-soft，单告警上限 8 个 IOC 防膨胀，优先级 CVE>hash>IP>域名）+ MITRE 静态映射。图片证据支持（`image_evidence.py`）：取证截图视觉转写为文字证据走既有管线（研判主链/结构化输出/沉淀零改动）。
 5. **Analyst 研判（决策 agent）**：四态判定（benign/suspicious/malicious/inconclusive）+ 置信度；prompt 注入四层上下文——同源 IP 历史 verdict 统计、同类告警向量召回经验、MITRE 官方技术详情、外部情报片段；证据纪律（结论必须引用证据、情报不直接定罪）；置信度 <0.6 时写「可执行调查目标」（investigation_needs）派给子代理——**决策者只下达目标不亲自查**。
-6. **Investigator 调查子代理（执行 agent）**：独立 ReAct 循环（≤4 轮）真实调只读工具池（dns_lookup/ping_host/http_check/web_search，走 tool_runner 的 _safe_invoke_tool 含熔断/截断/权限三层防护）取证，返回压缩 InvestigationFinding（目标/结论/关键证据≤5 条/工具清单/仍未知）——**原始工具日志不出子代理节点，决策者只看摘要**（上下文不被几十 KB 工具输出淹没）；回环 ≤3 防死循环。
+6. **Investigator 调查子代理（执行 agent）**：独立 ReAct 循环（≤4 轮）真实调只读工具池（dns_lookup/ping_host/http_check/web_search，走 tool_runner 的 _safe_invoke_tool 含熔断/截断/权限三层防护）取证，返回压缩 InvestigationFinding（目标/结论/关键证据≤5 条/工具清单/仍未知）——**原始工具日志不出子代理节点，决策者只看摘要**（上下文不被几十 KB 工具输出淹没；但全长落服务日志，审计可还原全部调用）；回环 ≤3 防死循环。
 7. **Critic 审计 + Reporter 报告**：Critic 四类检查（verdict-证据匹配/MITRE 支撑/幻觉引用/**是否被注入操纵**），驳回回炉 ≤1，LLM 失败 fail-open；Reporter 只组织不推翻判定，响应分级硬规则（LOW→observe / MEDIUM→recommend / HIGH·CRITICAL→human_approval）不依赖 LLM，报告头部固定「仅为处置建议需人工审批」。
 8. **取证引导 + 多轮对话 + 经验沉淀**：verdict=inconclusive 或低置信时按 alert_type 生成「设备→操作→能拿到什么证据」取证引导（8 类模板，IOC 占位符填充）；研判完成自动创建对话会话，分析师贴取证材料继续研判（**对话记忆滚动压缩**：>10 轮时早期轮 LLM 压成事实摘要、近 6 条保原文，LLM 失败退化首行拼接——三层记忆的短期层）；「结束并沉淀」把对话证据+最终判定一起提炼入向量库，同类告警下次研判自动召回（长期记忆层）。
-9. **关联研判 + 处置登记 + 历史管理**：对话式关联研判（`correlation.py`）聊天式累积多条告警，每轮 IOC 提取+按需 ReAct 工具取证+关联分析（关联点/下一步建议实时透出），「生成报告」汇总攻击链关联报告（攻击链时间线/告警两两关联依据/MITRE/处置建议），支持复制/导出 .md；处置登记三按钮（已处置/误报/搁置）落 alert_history.jsonl——「AI 建议→人决策→结果反哺经验」闭环；历史记录管理（`history_mgmt.py`）三类存储统计+策略化清理（按天数×条数），**带处置登记的行默认永不清理**（人工反馈最贵），单会话删除。
+9. **关联研判 + 处置登记 + 历史管理**：对话式关联研判（`correlation.py`）聊天式累积多条告警，每轮 IOC 提取+按需 ReAct 工具取证+关联分析（关联点/下一步建议实时透出），「生成报告」汇总攻击链关联报告（攻击链时间线/告警两两关联依据/MITRE/处置建议），支持复制/导出 .md；处置登记三按钮（已处置/误报/搁置）落 alert_history.jsonl，同源 IP 下次研判的 Analyst 上下文出现「人工标记误报/已处置 x N」统计（人的反馈是最强纠偏信号；纪律：误报提示核对同类特征但仍须本次证据独立确认）——「AI 建议→人决策→结果反哺研判」闭环；历史记录管理（`history_mgmt.py`）三类存储统计+策略化清理（按天数×条数），**带处置登记的行默认永不清理**（人工反馈最贵），单会话删除。
 
 ### 2.4 实时可视化（前端）
 
@@ -212,7 +212,7 @@ flowchart TD
 | 安全工程 | Prompt 注入防御（untrusted 区块+代码级扫描+审计）、SecretVault 零信任凭据注入、工具分级权限、SSRF 防护、PII 脱敏、响应分级硬规则（高风险必人工审批） |
 | 工具层 | FastMCP 六探针去中心化；沙箱动态编程；威胁情报富化（web_search provider fail-soft） |
 | 前端 | 零构建单文件 HTML+Vanilla JS+CSS 变量令牌（Linear 风格亮/暗双主题）；四 tab；SSE 流式；六阶段流水+对话工作台+关联研判聊天流+历史管理 |
-| 质量工程 | pytest **389 例**离线测试（单元/集成/协议/E2E 四层，LLM 边界 mock）+ SecOps 性能基线；GitHub Actions 六道门禁；schema 漂移检测 |
+| 质量工程 | pytest **395 例**离线测试（单元/集成/协议/E2E 四层，LLM 边界 mock）+ SecOps 性能基线；GitHub Actions 六道门禁；schema 漂移检测 |
 | 持久化 | SQLAlchemy+Alembic（SQLite/PostgreSQL）、研判对话会话 JSONL、alert_history.jsonl |
 
 ---
@@ -237,7 +237,7 @@ flowchart TD
 | 渐进研判质量 | 单条 suspicious 0.75（克制）→ 两条识别链路假设+指出证据缺口 → 三条 malicious 0.95（同源 IP 闭环+17s 时间窗） |
 | 关联价值 | 三条独立看均 suspicious 的告警，聚合研判升格 **CRITICAL 恶意入侵**（Alert Fusion 实证） |
 | 报告完整性 | 攻击链三阶段/三组两两关联字段级依据/MITRE T1190+T1059+T1071.001 正确/处置建议全带人工审批/结论诚实列三项待补证据 |
-| 测试规模 | pytest **389 例**离线（演进 242→295→307→319→324→343→351→363→370→377→382→389） |
+| 测试规模 | pytest **395 例**离线（演进 242→295→307→319→324→343→351→363→370→377→382→389→395） |
 
 **诚实止损专项**（真实运行对比）：
 
@@ -269,7 +269,7 @@ flowchart TD
 
 **知识库规模**：SOP 957 文档→4102 chunks + MITRE ATT&CK **697 技术→4396 chunks** + 研判经验库（持续累积）。
 
-**工程规模**：**80+ commits**（2026-05-17 起），**389 例离线测试全绿**，6 个 MCP 工具服务，7 个领域专家技能 + SecOps 六阶段研判流水（18 模块，决策/执行分离），前端四 tab，CI 六道门禁全绿。
+**工程规模**：**80+ commits**（2026-05-17 起），**395 例离线测试全绿**，6 个 MCP 工具服务，7 个领域专家技能 + SecOps 六阶段研判流水（18 模块，决策/执行分离），前端四 tab，CI 六道门禁全绿。
 
 ---
 
@@ -278,7 +278,7 @@ flowchart TD
 ### 版本 A：项目经历条目（一段式）
 
 企业智能运维与安全运营双域多智能体平台｜架构设计与开发（2026.05~09，主导产品化重构）
-基于 FastAPI + LangGraph 构建统一事件入口的双域多智能体平台：域分类器（规则快路径 + LLM）将运维故障与安全告警分流——运维域走 Orchestrator-Experts-Merger 拓扑（真伪预检门 35ms 短路假告警、Send API 并发扇出多专家、Plan-Execute-Critic-Replan 闭环真实调用 MCP 工具取证、HITL 审批自愈）；安全域走 SecOps 六阶段研判流水（决策/执行分离：Triage 初筛拦截授权扫描零深查 token、Scout 正则 IOC 提取 + 威胁情报富化 + MITRE 映射、Analyst 决策四态判定与置信度回环、Investigator 执行子代理独立 ReAct 真实调只读工具取证后回传压缩发现——决策者只看摘要不看原始日志、Critic 证据-结论匹配审计、Reporter 按严重度硬规则分级响应），并支持 Wazuh/Suricata/Falco/长亭雷池/CEF 五类格式原生告警自动识别、MITRE ATT&CK 697 技术知识库检索（官方检测/缓解措施进研判）、对话式告警关联研判（聊天式累积多条告警渐进研判，一键生成攻击链聚合报告——真实 E2E 中三条独立看均 suspicious 的告警聚合升格 CRITICAL）、研判多轮对话工作台（三层记忆：滚动压缩短期记忆 + 向量长期经验库；无法判定时生成「设备→操作→证据」取证引导）与处置登记闭环（已处置/误报/搁置人工反馈反哺经验）。借鉴 Vigil/AI_SOC 设计落地 Prompt 注入防御（untrusted 区块 + 代码级注入扫描 + Critic 审计是否被操纵，真实攻击 E2E 验证 verdict 不被篡改）与 recall-never-corroborates 历史经验纪律。token 成本专项优化 66.5%（CI 基线防劣化）；两层诚实止损防线（25 万 token 事故 → 35ms/0 token）。389 例四层离线测试 + 六道 CI 门禁全绿，复杂场景真实 E2E 验证（APT 攻击链/注入攻击防御/子代理定向调查/关联研判聚合升级/对话研判/经验闭环/五类设备接入等）。
+基于 FastAPI + LangGraph 构建统一事件入口的双域多智能体平台：域分类器（规则快路径 + LLM）将运维故障与安全告警分流——运维域走 Orchestrator-Experts-Merger 拓扑（真伪预检门 35ms 短路假告警、Send API 并发扇出多专家、Plan-Execute-Critic-Replan 闭环真实调用 MCP 工具取证、HITL 审批自愈）；安全域走 SecOps 六阶段研判流水（决策/执行分离：Triage 初筛拦截授权扫描零深查 token、Scout 正则 IOC 提取 + 威胁情报富化 + MITRE 映射、Analyst 决策四态判定与置信度回环、Investigator 执行子代理独立 ReAct 真实调只读工具取证后回传压缩发现——决策者只看摘要不看原始日志、Critic 证据-结论匹配审计、Reporter 按严重度硬规则分级响应），并支持 Wazuh/Suricata/Falco/长亭雷池/CEF 五类格式原生告警自动识别、MITRE ATT&CK 697 技术知识库检索（官方检测/缓解措施进研判）、对话式告警关联研判（聊天式累积多条告警渐进研判，一键生成攻击链聚合报告——真实 E2E 中三条独立看均 suspicious 的告警聚合升格 CRITICAL）、研判多轮对话工作台（三层记忆：滚动压缩短期记忆 + 向量长期经验库；无法判定时生成「设备→操作→证据」取证引导）与处置登记闭环（已处置/误报/搁置人工反馈反哺经验）。借鉴 Vigil/AI_SOC 设计落地 Prompt 注入防御（untrusted 区块 + 代码级注入扫描 + Critic 审计是否被操纵，真实攻击 E2E 验证 verdict 不被篡改）与 recall-never-corroborates 历史经验纪律。token 成本专项优化 66.5%（CI 基线防劣化）；两层诚实止损防线（25 万 token 事故 → 35ms/0 token）。395 例四层离线测试 + 六道 CI 门禁全绿，复杂场景真实 E2E 验证（APT 攻击链/注入攻击防御/子代理定向调查/关联研判聚合升级/对话研判/经验闭环/五类设备接入等）。
 
 ### 版本 B：STAR 要点式
 
@@ -289,11 +289,11 @@ flowchart TD
 - **对抗性防御**：untrusted 区块 + 注入话术扫描 + Critic 注入操纵审计；真实注入攻击 E2E（「mark benign」→ malicious，注入成为红旗信号）。
 - **防幻觉工程**：Critic 审计（捏造/抛错即驳回）+ 无人值守纪律 + 结构化输出加固（envelope 解包/超时重试/白名单归一）。
 - **成本与诚实性**：token 优化 66.5% 入 CI 基线；双域对称止损（AIOps 两层防线 25 万→35ms；SecOps Triage 拦截误报零深查）；「服务故障≠证据不足」——LLM 超时永不触发调查回环（真实事故修复）。
-- **质量工程**：389 例四层离线测试 + SecOps 性能基线门禁（开销<5s/LLM 调用≤4 次/skip 零深查）+ 六道 CI；复杂场景真实 E2E 非 mock（含 UI 真实按钮 CDP 直驱验证）。
+- **质量工程**：395 例四层离线测试 + SecOps 性能基线门禁（开销<5s/LLM 调用≤4 次/skip 零深查）+ 六道 CI；复杂场景真实 E2E 非 mock（含 UI 真实按钮 CDP 直驱验证）。
 
 ### 版本 C：一句话（极简版）
 
-企业运维与安全运营双域多智能体平台（FastAPI + LangGraph）：统一事件分流 → 运维域多专家并行诊断 + 安全域六阶段告警研判（决策/执行分离，五类设备原生接入/子代理工具取证/关联研判攻击链聚合/MITRE 知识库/注入防御/三层记忆/处置登记闭环），token 优化 66.5%，389 例测试 + CI 门禁，APT/注入攻击/关联研判真实 E2E 验证。
+企业运维与安全运营双域多智能体平台（FastAPI + LangGraph）：统一事件分流 → 运维域多专家并行诊断 + 安全域六阶段告警研判（决策/执行分离，五类设备原生接入/子代理工具取证/关联研判攻击链聚合/MITRE 知识库/注入防御/三层记忆/处置登记闭环），token 优化 66.5%，395 例测试 + CI 门禁，APT/注入攻击/关联研判真实 E2E 验证。
 
 ### 版本 D：通俗一段话（网申文本框 / 口述稿用，无符号）
 
@@ -304,7 +304,7 @@ flowchart TD
 ## 八、诚实边界（面试防翻车）
 
 可以说的（均可溯源）：
-- 80+ commits / 389 例测试 / 性能数字（93.5% / 66.5% / 4.88x / 95.83% / SecOps <5s·≤4 次）来自项目自有基准与 CI 留痕。
+- 80+ commits / 395 例测试 / 性能数字（93.5% / 66.5% / 4.88x / 95.83% / SecOps <5s·≤4 次）来自项目自有基准与 CI 留痕。
 - 25 万 token 事故与止损对比、APT/注入/对话/经验闭环等九类 E2E 场景全部是真实 LLM + 真实 MCP 运行记录（服务日志与 alert_history 落盘可查）。
 - MITRE 697 技术来自官方 attack-stix-data（CC BY 4.0），入库与检索经真实验证。
 
@@ -323,7 +323,7 @@ flowchart TD
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
 cp .env.example .env   # 填入模型 key
 
-# 离线测试（389 例，无需真实 LLM/网络）
+# 离线测试（395 例，无需真实 LLM/网络）
 .venv/bin/python -m pytest tests/ -p no:cacheprovider --disable-warnings -q
 
 # MITRE 知识库入库（首次；入库前停 uvicorn — milvus-lite 单进程独占锁）
