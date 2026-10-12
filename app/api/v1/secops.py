@@ -526,3 +526,22 @@ async def secops_correlation_delete(cid: str):
     if not ok:
         return JSONResponse(status_code=404, content={"detail": f"会话不存在: {cid}"})
     return {"deleted": cid}
+
+
+# ============================================================
+# 传感器覆盖自监 (Coverage Watch) — 防御的防御
+# ============================================================
+from app.security.coverage_watch import coverage_report  # noqa: E402
+
+
+@router.get(
+    "/coverage",
+    summary="传感器覆盖自监 — 资产该报没报即盲区 (疑似断流检测)",
+    description=(
+        "资产拓扑中被引用的传感器, 最近 window_min 分钟在研判历史里零事件 → 标记 silent.\n\n"
+        "结论是「疑似」而非确诊 (断流/正常静默期/资产刚接入都会触发), 供人/定时器调用.\n\n"
+        "无资产拓扑时返回 no_topology."
+    ),
+)
+async def secops_coverage(window_min: int = 30):
+    return coverage_report(window_min=window_min)
