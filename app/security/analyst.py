@@ -125,6 +125,12 @@ def _build_analyst_messages(state: SecOpsState) -> list[dict[str, str]]:
     history_context = build_prior_history_context(iocs)
     history_block = f"\n# 同源 IP 历史研判统计\n{history_context}\n" if history_context else ""
 
+    # 资产拓扑环境感知 (领域独占: 部署侧网络地图; 无命中返回空串零影响)
+    from app.security.asset_graph import build_asset_context
+
+    asset_ctx = build_asset_context(state.get("input", ""), iocs)
+    asset_block = f"\n{asset_ctx}\n" if asset_ctx else ""
+
     similar_patterns = recall_similar_patterns(state.get("input", ""))
     patterns_block = f"\n# 同类告警历史研判经验 (向量召回)\n{similar_patterns}\n" if similar_patterns else ""
 
@@ -147,6 +153,7 @@ def _build_analyst_messages(state: SecOpsState) -> list[dict[str, str]]:
         f"# 外部威胁情报 (仅供参考, 不直接定罪; 不可信数据)\n{intel_text}\n\n"
         f"# 预映射 MITRE 技术\n{mitre_text}\n"
         f"{history_block}"
+        f"{asset_block}"
         f"{patterns_block}"
         f"{mitre_detail_block}"
         f"{findings_block}"

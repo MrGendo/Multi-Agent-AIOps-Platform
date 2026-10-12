@@ -1,0 +1,84 @@
+# 资产与传感器拓扑 (Asset & Sensor Topology)
+#
+# 领域 agent 的独占数据: 通用智能体的知识来自公网训练数据, 而这个文件描述的
+# 是「你的网络」—— 什么资产、什么角色、哪些传感器罩着它、证据去哪取。
+# 告警进来自动解析资产 → Analyst 上下文注入环境感知块。
+#
+# 格式说明:
+#   id:       资产唯一标识 (告警文本中的主机名/ip 命中它)
+#   ips:      该资产的 IP 列表
+#   services: 运行的服务 (影响爆炸半径评估)
+#   tags:     角色/合规标签 (prod=生产 / pci=支付合规 / dmz=边界 / test=测试)
+#   sensors:  覆盖此资产的传感器 [waf, hids, ndr, ids] — 证据目录与覆盖自监用
+#   segment:  网段 (横向移动评估: 同网段还有谁)
+
+assets:
+  - id: prod-web-01
+    ips: [10.0.0.5]
+    services: [nginx, api]
+    tags: [prod, dmz]
+    sensors: [waf, hids, ndr]
+    segment: dmz-app
+
+  - id: prod-web-02
+    ips: [10.0.0.6]
+    services: [nginx, api]
+    tags: [prod, dmz]
+    sensors: [waf, hids, ndr]
+    segment: dmz-app
+
+  - id: prod-db-01
+    ips: [10.0.1.20]
+    services: [mysql]
+    tags: [prod, pci]
+    sensors: [hids, ndr]
+    segment: db
+
+  - id: prod-cache-01
+    ips: [10.0.1.30]
+    services: [redis]
+    tags: [prod]
+    sensors: [hids]
+    segment: db
+
+  - id: office-gw-01
+    ips: [10.0.0.1]
+    services: [vpn, gateway]
+    tags: [prod]
+    sensors: [ids, ndr]
+    segment: edge
+
+  - id: dev-jump-01
+    ips: [172.16.0.10]
+    services: [ssh, bastion]
+    tags: [test]
+    sensors: [hids]
+    segment: mgmt
+
+# 传感器说明 (覆盖自监 + 证据目录用)
+sensors:
+  waf:
+    name: 长亭雷池 WAF
+    vendor: chaitin
+    covers: [dmz-app]
+    # evidence: 该传感器能提供的证据类型 → 取证方式
+    evidence:
+      - query blocked/allowed requests by src_ip  # 开放 API: scripts/poll_safeline.py
+  hids:
+    name: Wazuh HIDS
+    vendor: wazuh
+    covers: [dmz-app, db, mgmt]
+    evidence:
+      - auth.log / process events / FIM  # Wazuh API 或 agent 本地日志
+  ndr:
+    name: NDR (CEF 导出)
+    vendor: generic-cef
+    covers: [dmz-app, db, edge]
+    evidence:
+      - flow records / 外联会话 / DNS 查询  # 设备查询语句见证据目录
+  ids:
+    name: Suricata IDS
+    vendor: suricata
+    covers: [edge]
+    evidence:
+      - eve.json alert/dns/http 事件  # scripts/ship_suricata_alerts.py

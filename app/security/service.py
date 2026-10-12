@@ -178,6 +178,19 @@ async def stream_triage(
                     confidence=confidence,
                 )
                 guidance_md = render_guidance_markdown(guidance)
+                # 资产感知取证目录 (领域独占: 只列该资产覆盖传感器的可执行取证)
+                try:
+                    from app.security.evidence_catalog import build_evidence_catalog
+
+                    catalog = build_evidence_catalog(
+                        final_state.get("alert_type", ""),
+                        query,
+                        final_state.get("iocs") or {},
+                    )
+                    if catalog:
+                        guidance_md += catalog
+                except Exception as exc:
+                    logger.debug(f"[secops] 证据目录构建失败 (忽略): {exc}")
         except Exception as exc:
             logger.warning(f"[secops] 取证引导生成失败 (忽略): {exc}")
 
