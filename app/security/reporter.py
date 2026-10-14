@@ -20,9 +20,11 @@ from app.security.state import (
     SEVERITY_HIGH,
     SEVERITY_LOW,
     SEVERITY_MEDIUM,
+    AttackChainStep,
     FactSheet,
     ResponseRecommendation,
     SecOpsState,
+    VulnExplain,
 )
 
 # severity → response_mode 硬规则映射 (不依赖 LLM)
@@ -77,7 +79,12 @@ def _build_reporter_messages(state: SecOpsState) -> list[dict[str, str]]:
         "victim_entities 从受影响资产选; 拿不准的实体不要编.\n"
         f"4. response_actions 按响应分级给建议: 当前 response_mode={resolve_response_mode(state.get('severity', ''))} "
         "(observe=仅观察建议, recommend=建议动作, human_approval=高风险动作需人工审批).\n"
-        "5. 只给建议, 不要虚构已执行的处置."
+        "5. 只给建议, 不要虚构已执行的处置.\n"
+        "6. attack_chain 只有当告警证据能支撑一条至少 2 个环节的路径时才给, 每个环节必须能对应到证据"
+        " (evidence 引真实 IOC/告警原文片段), 证据不足给空列表, 禁止编链.\n"
+        "7. vuln_explains 只解释告警确实利用的漏洞/手法 (最多 2 条), principle 要通俗易懂 (可用类比, "
+        "像给新同事讲), remediation 是通用修复 (如白名单/网络隔离/输入校验), "
+        "与 response_actions (本次处置建议) 分工不同.\n"
     )
 
     user = (
@@ -208,6 +215,62 @@ def _render_fallback_fact_sheet(state: SecOpsState, verdict: str, severity: str,
     )
 
 
+# 攻击链路角色中文映射 (attacker/pivot/target 之外的值原样保留)
+_ROLE_ZH = {"attacker": "攻击者", "pivot": "跳板", "target": "目标"}
+
+# LLM 常见的角色漂移词 → 白名单角色 (2026-10-14 E2E 实测: role 返回
+# 「外部攻击者 (经受控服务端中转)」这类自由文本, 前端配色/徽章按白名单映射会失配)
+_VALID_ROLES = ("attacker", "pivot", "target")
+_ROLE_KEYWORDS = (
+    ("attacker", ("attacker", "攻击者", "攻击源", "攻击方", "外部攻击")),
+    ("target", ("target", "目标", "受害", "被攻陷", "失陷")),
+    ("pivot", ("pivot", "跳板", "中转", "中间人", "代理")),
+)
+
+
+def _normalize_chain_role(raw: str) -> str:
+    """角色归一到 attacker/pivot/target 白名单; 匹配不上归 pivot (中立方)."""
+    role = (raw or "").strip().lower()
+    if role in _VALID_ROLES:
+        return role
+    for canonical, keywords in _ROLE_KEYWORDS:
+        if any(k.lower() in role for k in keywords):
+            return canonical
+    return "pivot"
+
+
+def _render_attack_chain(steps: list[AttackChainStep]) -> str:
+    """渲染「攻击链路推演」Markdown 段; 空列表返回空串 (整段不出, 反幻觉)."""
+    if not steps:
+        return ""
+    lines = ["## 攻击链路推演\n"]
+    for i, step in enumerate(steps, 1):
+        role_zh = _ROLE_ZH.get((step.role or "").strip().lower(), step.role or "")
+        # 每环节: 序号 + [角色] 实体 — 行为 (+ 证据) (+ MITRE)
+        seg = f"{i}. **[{role_zh}] {step.actor}** — {step.action}"
+        if step.evidence:
+            seg += f"（证据: {step.evidence}）"
+        if step.mitre:
+            seg += f" `{step.mitre.strip()}`"
+        lines.append(seg)
+    return "\n".join(lines) + "\n\n"
+
+
+def _render_vuln_explains(explains: list[VulnExplain]) -> str:
+    """渲染「漏洞原理解读（通俗版）」Markdown 段; 空列表返回空串."""
+    if not explains:
+        return ""
+    parts = ["## 漏洞原理解读（通俗版）\n"]
+    for v in explains:
+        parts.append(f"### {v.vuln}\n")
+        parts.append(f"**原理**: {v.principle}\n")
+        if v.remediation:
+            items = "\n".join(f"- {r}" for r in v.remediation if (r or "").strip())
+            if items:
+                parts.append(f"**通常修复**:\n\n{items}\n")
+    return "\n".join(parts) + "\n"
+
+
 def _render_fact_sheet(sheet: FactSheet, response_mode: str) -> str:
     """把 FactSheet schema 渲染成 Markdown (response_mode 用硬规则值覆盖)."""
     mitre = ", ".join(sheet.mitre_techniques) or "（无）"
@@ -220,6 +283,10 @@ def _render_fact_sheet(sheet: FactSheet, response_mode: str) -> str:
         + (" — 需人工审批" if a.requires_approval else "")
         for i, a in enumerate(sheet.response_actions, 1)
     ) or "（无）"
+
+    # 攻击链路推演 + 漏洞通俗解读: 仅当非空才渲染 (反幻觉 — 空则整段不出)
+    chain_section = _render_attack_chain(sheet.attack_chain)
+    vuln_section = _render_vuln_explains(sheet.vuln_explains)
 
     return (
         f"# 安全告警研判报告\n\n"
@@ -238,6 +305,8 @@ def _render_fact_sheet(sheet: FactSheet, response_mode: str) -> str:
         f"## 证据引用\n\n"
         + ("\n".join(f"- {r}" for r in sheet.evidence_refs) or "（无）")
         + "\n\n"
+        f"{chain_section}"
+        f"{vuln_section}"
         f"## 处置建议\n\n"
         f"{action_lines}\n"
     )
@@ -259,7 +328,7 @@ async def reporter_node(state: SecOpsState) -> dict:
     try:
         harness = get_agent_harness()
         model = harness.report_model()
-        llm = get_chat_llm(model=model, temperature=0.2, timeout=60, max_retries=1)
+        llm = get_chat_llm(model=model, temperature=0.2, timeout=120, max_retries=3)
         sheet: FactSheet = await ainvoke_structured(
             llm=llm,
             schema_cls=FactSheet,
@@ -277,6 +346,9 @@ async def reporter_node(state: SecOpsState) -> dict:
             "severity": severity,
             "response_mode": response_mode,
             "response_actions": [_format_action(a) for a in actions],
+            # 兜底不编链: LLM 失败时攻击链/漏洞解读为空 (反幻觉)
+            "attack_chain": [],
+            "vuln_explains": [],
             "error": f"reporter_llm_failed: {detail}",
         }
 
@@ -305,6 +377,15 @@ async def reporter_node(state: SecOpsState) -> dict:
     if not sheet.victim_entities and victims:
         sheet = sheet.model_copy(update={"victim_entities": victims})
 
+    # 攻击链角色归一 (LLM 会输出「外部攻击者 (经受控服务端中转)」这类自由文本,
+    # 前端徽章/配色按白名单映射 — 同 verdict 四态白名单纪律)
+    if sheet.attack_chain:
+        normalized_steps = [
+            s.model_copy(update={"role": _normalize_chain_role(s.role)}) if s.role else s
+            for s in sheet.attack_chain
+        ]
+        sheet = sheet.model_copy(update={"attack_chain": normalized_steps})
+
     fact_sheet = _render_fact_sheet(sheet, response_mode)
     logger.info(
         f"[Reporter] 报告完成 verdict={final_verdict} severity={final_severity} mode={response_mode}"
@@ -316,6 +397,9 @@ async def reporter_node(state: SecOpsState) -> dict:
         "severity": final_severity,
         "response_mode": response_mode,
         "response_actions": [_format_action(a) for a in actions],
+        # 攻击链/漏洞解读透传给 state (LangGraph schema 已显式声明这两个键)
+        "attack_chain": [s.model_dump() for s in (sheet.attack_chain or [])],
+        "vuln_explains": [v.model_dump() for v in (sheet.vuln_explains or [])],
     }
 
 

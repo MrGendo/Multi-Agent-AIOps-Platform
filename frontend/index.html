@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css?v=20260920a">
+    <link rel="stylesheet" href="/styles.css?v=20261014a">
 </head>
 <body>
 
@@ -228,6 +228,19 @@
 
             <!-- 报告 (单条模式) + 处置登记 -->
             <div id="secops-report" class="prose report-full hidden"></div>
+
+            <!-- 攻击链路推演 (report 事件 attack_chain 字段可视化, 空数组=证据不足, 保持隐藏) -->
+            <div id="secops-attack-chain" class="panel hidden">
+                <div class="panel-head">⛓ 攻击链路推演 <span class="t-dim">基于当前证据还原的攻击路径</span></div>
+                <div id="secops-attack-chain-body" class="attack-chain-body"></div>
+            </div>
+
+            <!-- 漏洞通俗解读 (report 事件 vuln_explains 字段, 空数组保持隐藏) -->
+            <div id="secops-vuln-explains" class="panel hidden">
+                <div class="panel-head">📚 漏洞原理解读 <span class="t-dim">通俗版 · 含通常修复方式</span></div>
+                <div id="secops-vuln-explains-body" class="vuln-explains-body"></div>
+            </div>
+
             <div id="secops-disposition" class="secops-disposition hidden">
                 <span class="t-dim disposition-label">处置登记:</span>
                 <button class="btn-ghost disp-btn" data-action="已处置" title="登记本告警已完成处置">已处置</button>
@@ -417,7 +430,7 @@
     <div id="drawer-body" class="drawer-body prose scroll-pane"></div>
 </aside>
 
-<script src="/app.js?v=20260920a"></script>
+<script src="/app.js?v=20261014a"></script>
 <script src="/correlation.js?v=20260920a"></script>
 </body>
 </html>

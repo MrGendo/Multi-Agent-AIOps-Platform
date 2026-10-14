@@ -791,6 +791,99 @@ body {
     .secops-midrow { grid-template-columns: 1fr; }
 }
 
+/* ============ SecOps 攻击链路推演 / 漏洞通俗解读 (report 扩展字段) ============ */
+/* 攻击链: 横向节点卡轨道, 节点多时横向滚动 */
+.attack-chain-body {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    padding: 14px 16px 16px;
+    overflow-x: auto;
+}
+.ac-node {
+    flex: 0 0 220px;
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, .02);
+}
+:root[data-theme="light"] .ac-node { background: rgba(0, 0, 0, .02); }
+/* 角色徽章: attacker=红(复用 --red) / pivot=琥珀(复用 --amber) / target=强调色 */
+.ac-role {
+    display: inline-block;
+    font-size: 10px; font-weight: 600; letter-spacing: .04em;
+    padding: 1px 8px; border-radius: 5px; margin-bottom: 6px;
+    border: 1px solid transparent;
+}
+.ac-role.r-attacker { color: var(--red); border-color: var(--red); background: rgba(248, 113, 113, .1); }
+.ac-role.r-pivot { color: var(--amber); border-color: var(--amber); background: rgba(245, 158, 11, .1); }
+.ac-role.r-target { color: var(--accent-hover); border-color: var(--accent); background: rgba(94, 106, 210, .1); }
+:root[data-theme="light"] .ac-role.r-attacker { background: rgba(220, 38, 38, .07); }
+:root[data-theme="light"] .ac-role.r-pivot { background: rgba(217, 119, 6, .07); }
+:root[data-theme="light"] .ac-role.r-target { background: rgba(94, 106, 210, .07); }
+.ac-actor {
+    font-size: 13px; font-weight: 700; color: var(--text-1);
+    word-break: break-all; line-height: 1.4;
+}
+.ac-action { font-size: 12px; color: var(--text-2); line-height: 1.55; margin-top: 4px; }
+.ac-evidence {
+    font-size: 11px; color: var(--text-4); line-height: 1.5; margin-top: 6px;
+    border-left: 2px solid var(--border); padding-left: 7px;
+    word-break: break-word;
+}
+.ac-mitre-row { margin-top: 7px; }
+.ac-arrow {
+    flex: 0 0 auto;
+    display: flex; align-items: center;
+    padding: 0 7px;
+    color: var(--text-4);
+}
+/* 箭头: 横线 + CSS 三角头, 克制风格 */
+.ac-arrow-line { width: 14px; height: 1px; background: var(--text-4); opacity: .55; }
+.ac-arrow-head {
+    width: 0; height: 0;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    border-left: 5px solid var(--text-4);
+    opacity: .55;
+}
+
+/* 漏洞通俗解读卡片 */
+.vuln-explains-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 10px;
+    padding: 14px 16px 16px;
+}
+.vuln-card {
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, .02);
+}
+:root[data-theme="light"] .vuln-card { background: rgba(0, 0, 0, .02); }
+.vuln-name {
+    font-size: 13.5px; font-weight: 700; color: var(--text-1);
+    margin-bottom: 8px; word-break: break-word;
+}
+.vuln-block-title {
+    font-size: 10px; font-weight: 590; letter-spacing: .05em;
+    color: var(--text-4); text-transform: uppercase;
+    margin-bottom: 3px;
+}
+.vuln-principle {
+    margin: 0; font-size: 12.5px; color: var(--text-2); line-height: 1.65;
+    word-break: break-word;
+}
+.vuln-fixes {
+    margin: 2px 0 0; padding-left: 1.3em;
+    font-size: 12.5px; color: var(--text-2); line-height: 1.65;
+}
+.vuln-fixes li { margin: 0.18em 0; }
+.vuln-card .vuln-block + .vuln-block { margin-top: 10px; border-top: 1px dashed var(--border-subtle); padding-top: 9px; }
+
+
 /* ============ SecOps 取证引导 / 研判对话 / 历史会话 ============ */
 .secops-guidance { border-left: 3px solid var(--amber); }
 .secops-guidance-body { padding: 8px 16px 14px; font-size: 13px; }

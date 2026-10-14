@@ -76,6 +76,8 @@ class SecOpsState(TypedDict, total=False):
         response_mode:    响应模式 (observe/recommend/human_approval)
         response_actions: 建议处置动作列表 (纯建议, 执行必须人工审批)
         fact_sheet:       Reporter 生成的 Markdown 研判报告
+        attack_chain:     Reporter 推演的攻击链路环节 (dict 形态, 证据不足为空)
+        vuln_explains:    Reporter 漏洞通俗解读 (dict 形态, ≤2 条)
         error:            异常信息 (fail-soft, 转报告不中断)
     """
 
@@ -118,6 +120,10 @@ class SecOpsState(TypedDict, total=False):
     response_mode: str
     response_actions: List[str]
     fact_sheet: str
+    # Reporter 攻击链推演/漏洞通俗解读 (LangGraph 会丢弃 schema 外的键, 必须显式声明;
+    # 存 dict 形态: [step.model_dump() for step in ...])
+    attack_chain: List[dict]
+    vuln_explains: List[dict]
     error: str
 
 
@@ -230,6 +236,59 @@ class ResponseRecommendation(BaseModel):
     )
 
 
+class AttackChainStep(BaseModel):
+    """攻击链路推演的单个环节 (Reporter 结构化输出).
+
+    反幻觉纪律: 每个环节必须能对应到真实证据 (IOC/告警原文),
+    证据撑不起一条 ≥2 环节的路径时整个 attack_chain 给空列表.
+    """
+
+    actor: str = Field(
+        ...,
+        description=(
+            "节点实体名 (如「攻击者 45.62.11.8」「订单服务 Web 服务器」"
+            "「云元数据服务 169.254.169.254」)"
+        ),
+    )
+    role: str = Field(
+        default="pivot",
+        description="该实体在链路中的角色: attacker | pivot | target",
+    )
+    action: str = Field(
+        ...,
+        description="该环节发生的行为 (如「构造含内网地址的 URL 提交给 webhook 接口」)",
+    )
+    evidence: str = Field(
+        default="",
+        description="证据引用 (IOC/告警原文片段, 可溯源)",
+    )
+    mitre: str = Field(
+        default="",
+        description="该环节对应 MITRE 技术ID (如 T1190), 无则空",
+    )
+
+
+class VulnExplain(BaseModel):
+    """漏洞/攻击手法的通俗解读 (给非安全背景的读者).
+
+    只解释告警确实利用的漏洞/手法 (≤2 条); remediation 是通用加固建议,
+    与 response_actions (本次处置建议) 分工不同.
+    """
+
+    vuln: str = Field(
+        ...,
+        description="漏洞/攻击手法名 (如 SSRF / SQL注入 / CVE-2021-44228)",
+    )
+    principle: str = Field(
+        ...,
+        description="通俗原理 2-4 句, 像给新同事讲, 可用类比, 禁止堆术语",
+    )
+    remediation: List[str] = Field(
+        default_factory=list,
+        description="通常修复方式 (通用加固, 非本次处置)",
+    )
+
+
 class FactSheet(BaseModel):
     """安全研判报告的结构化输出."""
 
@@ -246,6 +305,16 @@ class FactSheet(BaseModel):
     response_actions: List[ResponseRecommendation] = Field(
         default_factory=list,
         description="处置建议 (observe/recommend/human_approval 分级)",
+    )
+    # 攻击链路推演 (证据不足时为空列表, 渲染层整段不出现 — 反幻觉)
+    attack_chain: List[AttackChainStep] = Field(
+        default_factory=list,
+        description="攻击链路推演环节 (仅当证据能支撑 ≥2 环节路径时给, 否则空)",
+    )
+    # 漏洞通俗解读 (只解释告警确实利用的手法, ≤2 条)
+    vuln_explains: List[VulnExplain] = Field(
+        default_factory=list,
+        description="漏洞/攻击手法通俗解读 (≤2 条, 只解释告警确实利用的)",
     )
 
 

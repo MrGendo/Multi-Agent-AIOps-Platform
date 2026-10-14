@@ -143,6 +143,9 @@ def get_chat_llm(
                 streaming=streaming,
                 timeout=timeout,
                 max_retries=max_retries,
+                # 显式给足输出预算: 长报告 (FactSheet 含攻击链/漏洞解读) 曾被客户端
+                # 默认 max_tokens 截断 → JSON 解析失败走兜底 (2026-10-14 真实事故)
+                max_tokens=8192,
                 **kwargs,
             )
 

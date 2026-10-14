@@ -350,4 +350,7 @@ async def _convert_secops_event(
                 report=fact_sheet,
                 verdict=node_output.get("verdict", ""),
                 response_mode=node_output.get("response_mode", ""),
+                # 攻击链推演/漏洞通俗解读透传给前端 (空列表兜底, 不编链)
+                attack_chain=node_output.get("attack_chain") or [],
+                vuln_explains=node_output.get("vuln_explains") or [],
             )

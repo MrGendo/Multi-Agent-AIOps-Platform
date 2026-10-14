@@ -756,7 +756,10 @@ function handleSecopsEvent(ev) {
         statusEl.textContent = "完成 ✓";
         const repEl = document.getElementById("secops-report");
         repEl.classList.remove("hidden");
-        repEl.innerHTML = renderMarkdown(d.report || "");
+        // 剥掉后端追加的两个纯文字段 (攻击链/漏洞解读), 用结构化字段渲染可视化卡片, 避免重复
+        repEl.innerHTML = renderMarkdown(stripSecopsVizSections(d.report || ""));
+        renderSecopsAttackChain(d.attack_chain);
+        renderSecopsVulnExplains(d.vuln_explains);
         document.getElementById("secops-disposition").classList.remove("hidden");
         if (d.verdict) setSecopsVerdict(d.verdict);
         const modeEl = document.getElementById("secops-mode");
@@ -801,6 +804,93 @@ function handleSecopsEvent(ev) {
         const el = document.getElementById("secops-mitre");
         if (el) el.innerHTML = d.mitre_techniques.map((m) => `<span class="chip mono">${escapeHtml(m)}</span>`).join("");
     }
+}
+
+// ============================================================
+// SecOps report 扩展字段: 攻击链路图 / 漏洞通俗解读
+// ============================================================
+
+// 后端在 report Markdown 尾部追加的两个纯文字段 (供对话/沉淀/导出用),
+// 前端渲染前剥掉改用结构化字段可视化, 避免同一内容显示两遍。
+// 规则: 从段标题行起到下一个 "## " 头或文本末尾; 逐段剥离, 其余内容一字不动;
+// 旧版本报告无这些段时零影响。
+const SECOPS_VIZ_SECTION_TITLES = ["## 攻击链路推演", "## 漏洞原理解读（通俗版）"];
+
+function stripSecopsVizSections(md) {
+    if (!md) return md;
+    let out = md;
+    let stripped = false;
+    for (const title of SECOPS_VIZ_SECTION_TITLES) {
+        const start = out.indexOf(title);
+        if (start === -1) continue;
+        stripped = true;
+        // 找该段结束: 下一个行首 "## " 头, 或文本末尾
+        const nextHead = out.indexOf("\n## ", start + title.length);
+        const end = nextHead === -1 ? out.length : nextHead + 1; // +1 保留换行, 下段头从行首起
+        out = out.slice(0, start) + out.slice(end);
+    }
+    // 只有真的剥过段时才收敛尾部空行 (段前空行残留), 旧版报告零影响
+    if (stripped) out = out.replace(/\n{2,}$/, "\n");
+    return out;
+}
+
+// 攻击链角色徽章文案 (配色走 CSS 语义类, 不在 JS 写色值)
+const ATTACK_ROLE_LABEL = { attacker: "攻击者", pivot: "跳板", target: "目标" };
+
+function renderSecopsAttackChain(chain) {
+    const panel = document.getElementById("secops-attack-chain");
+    const body = document.getElementById("secops-attack-chain-body");
+    if (!panel || !body) return;
+    body.innerHTML = "";
+    if (!Array.isArray(chain) || !chain.length) {
+        panel.classList.add("hidden");
+        return;
+    }
+    const nodes = chain.map((n) => {
+        const role = ATTACK_ROLE_LABEL[n.role] || escapeHtml(n.role || "");
+        const evidence = n.evidence
+            ? `<div class="ac-evidence">${escapeHtml(n.evidence)}</div>` : "";
+        const mitre = n.mitre
+            ? `<span class="chip mono ac-mitre">${escapeHtml(n.mitre)}</span>` : "";
+        return `<div class="ac-node" data-role="${escapeHtml(n.role || "")}">
+            <div class="ac-role r-${escapeHtml(n.role || "")}">${role}</div>
+            <div class="ac-actor">${escapeHtml(n.actor || "")}</div>
+            <div class="ac-action">${escapeHtml(n.action || "")}</div>
+            ${evidence}
+            ${mitre ? `<div class="ac-mitre-row">${mitre}</div>` : ""}
+        </div>`;
+    });
+    // 节点间箭头分隔 (CSS 绘制, 克制风格)
+    body.innerHTML = nodes.join(`<div class="ac-arrow" aria-hidden="true"><span class="ac-arrow-line"></span><span class="ac-arrow-head"></span></div>`);
+    panel.classList.remove("hidden");
+}
+
+function renderSecopsVulnExplains(explains) {
+    const panel = document.getElementById("secops-vuln-explains");
+    const body = document.getElementById("secops-vuln-explains-body");
+    if (!panel || !body) return;
+    body.innerHTML = "";
+    if (!Array.isArray(explains) || !explains.length) {
+        panel.classList.add("hidden");
+        return;
+    }
+    body.innerHTML = explains.map((v) => {
+        // 通常修复: 空列表则整块不显
+        const fixes = (Array.isArray(v.remediation) ? v.remediation : [])
+            .filter((r) => r).map((r) => `<li>${escapeHtml(r)}</li>`).join("");
+        return `<div class="vuln-card">
+            <div class="vuln-name">${escapeHtml(v.vuln || "")}</div>
+            <div class="vuln-block">
+                <div class="vuln-block-title">原理</div>
+                <p class="vuln-principle">${escapeHtml(v.principle || "")}</p>
+            </div>
+            ${fixes ? `<div class="vuln-block">
+                <div class="vuln-block-title">通常修复</div>
+                <ul class="vuln-fixes">${fixes}</ul>
+            </div>` : ""}
+        </div>`;
+    }).join("");
+    panel.classList.remove("hidden");
 }
 
 // ============================================================
@@ -1023,6 +1113,15 @@ async function startSecops() {
     findingsEl.innerHTML = "";
     repEl.innerHTML = "";
     repEl.classList.add("hidden");
+    // 攻击链/漏洞解读面板同步清空隐藏
+    ["secops-attack-chain", "secops-vuln-explains"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) {
+            const b = el.querySelector("[id$=\"-body\"]");
+            if (b) b.innerHTML = "";
+            el.classList.add("hidden");
+        }
+    });
     document.querySelectorAll("#secops-pipeline .secops-stage").forEach((el) => el.classList.remove("st-active", "st-done", "st-skip"));
     secopsStage("triage", "active");
     setSecopsVerdict("", 0);
