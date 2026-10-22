@@ -2,7 +2,7 @@
 
 **企业智能运维与安全运营双域多智能体平台** —— 统一事件入口按域分类（运维故障 vs 安全告警），运维域走「真伪预检 → 多专家并行会诊 → 融合报告 → 人工审批自愈」，安全域走「初筛 → IOC 取证 → 四态研判 → 证据审计 → 分级响应」，两个域共享 Agent Runtime / RAG / MCP 工具层 / SSE 可视化。
 
-本项目基于 `FastAPI`、`LangGraph`、`Milvus`、`FastMCP` 和大模型（GLM / DeepSeek / DashScope）构建。运维域彻底摒弃传统单体大模型的线性诊断思维，采用高度分形化的 **Orchestrator-Experts-Merger (统筹-多专家-汇编)** 拓扑架构，具备历史经验召回、沙箱动态编程探测、防幻觉校验与跨技术域并行排障能力；安全域为 **SecOps 六阶段研判流水**（Triage → Scout → Analyst（决策） → Investigator（执行） → Critic → Reporter，决策/执行分离），支持 Wazuh/Suricata/Falco/长亭雷池/CEF 五类格式原生告警接入、调查子代理真实工具取证、三层记忆架构、对话式告警关联研判（多告警攻击链聚合报告）、MITRE ATT&CK 知识库检索、Prompt 注入防御、处置登记闭环与经验沉淀，构筑高阶、安全、可落地的自动化运维与安全运营中枢。
+本项目基于 `FastAPI`、`LangGraph`、`Milvus`、`FastMCP` 和大模型（GLM / DeepSeek / DashScope）构建。运维域彻底摒弃传统单体大模型的线性诊断思维，采用高度分形化的 **Orchestrator-Experts-Merger (统筹-多专家-汇编)** 拓扑架构，具备历史经验召回、沙箱动态编程探测、防幻觉校验与跨技术域并行排障能力；安全域为 **SecOps 六阶段研判流水**（Triage → Scout → Analyst（决策） → Investigator（执行） → Critic → Reporter，决策/执行分离），支持 Wazuh/Suricata/Falco/长亭雷池/CEF 五类格式原生告警接入、调查子代理真实工具取证、三层记忆架构、对话式告警关联研判（多告警攻击链聚合报告）、MITRE ATT&CK 知识库检索、Prompt 注入防御、处置登记闭环与经验沉淀，构筑高阶、安全、可落地的自动化运维与安全运营中枢。研判置信度经人工处置真值校准（ECE/Brier 量化），被证实的攻击经验可反哺为 Sigma 检测规则草稿（人工审批，不自动下发），闭合「检测 → 研判 → 经验 → 再检测」飞轮。
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-green)
@@ -414,6 +414,8 @@ multi_agent_github/
 | **研判多轮对话** | POST / GET | `/api/v1/secops/dialogue/{session_id}`（对话轮 / 详情 / close 沉淀） |
 | **关联研判（聊天式累积告警）** | POST / GET | `/api/v1/secops/correlation`（追加轮 SSE / 列表 / 详情 / report 生成） |
 | **处置登记（人工反馈闭环）** | POST | `/api/v1/secops/{session_id}/disposition`（已处置/误报/搁置） |
+| **置信度校准（自评置信度 vs 人工处置真值）** | GET | `/api/v1/secops/calibration`（分桶 reliability / ECE / Brier / verdict×处置矩阵） |
+| **检测规则反哺（研判经验 → Sigma 草稿）** | POST / GET | `/api/v1/secops/detection/forge`（LLM 提炼 Sigma 草稿，draft 状态不下发设备）/ `detection/drafts`（列表 / approve 人工审批） |
 | **历史记录管理** | GET / POST / DELETE | `/api/v1/secops/history/stats`（统计）/ `history/purge`（策略清理）/ 单会话删除 |
 | Webhook (自动处理告警) | POST | `/api/v1/webhook/alertmanager` |
 | **安全设备 Webhook (Wazuh/Suricata/Falco/雷池/CEF 自动识别)** | POST | `/api/v1/webhook/security` |

@@ -343,6 +343,8 @@ async def reporter_node(state: SecOpsState) -> dict:
         return {
             "fact_sheet": fact_sheet,
             "verdict": verdict,
+            # confidence 原样带回 (校准闭环 join 键; Reporter 只组织不产生置信度)
+            "confidence": float(state.get("confidence") or 0.0),
             "severity": severity,
             "response_mode": response_mode,
             "response_actions": [_format_action(a) for a in actions],
@@ -394,6 +396,8 @@ async def reporter_node(state: SecOpsState) -> dict:
     return {
         "fact_sheet": fact_sheet,
         "verdict": final_verdict,
+        # confidence 原样带回 (校准闭环 join 键; Reporter 只组织不产生置信度)
+        "confidence": float(state.get("confidence") or 0.0),
         "severity": final_severity,
         "response_mode": response_mode,
         "response_actions": [_format_action(a) for a in actions],

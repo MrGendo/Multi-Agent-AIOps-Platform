@@ -207,6 +207,7 @@ async def stream_triage(
                 iocs=final_state.get("iocs") or {},
                 alert_type=final_state.get("alert_type", ""),
                 base_session_id=session_id,
+                confidence=confidence,
             )
             dialogue_session_id = dlg.session_id
         except Exception as exc:
@@ -349,6 +350,9 @@ async def _convert_secops_event(
                 message="安全研判报告已生成",
                 report=fact_sheet,
                 verdict=node_output.get("verdict", ""),
+                # 置信度透传 (校准闭环: webhook 落盘/前端展示用; reporter 不产生
+                # 置信度, 从 state 原样带回 — 只组织不推翻)
+                confidence=node_output.get("confidence", 0.0),
                 response_mode=node_output.get("response_mode", ""),
                 # 攻击链推演/漏洞通俗解读透传给前端 (空列表兜底, 不编链)
                 attack_chain=node_output.get("attack_chain") or [],

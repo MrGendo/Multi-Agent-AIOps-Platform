@@ -251,6 +251,7 @@ async def _run_triage_background(
     events: List[Dict[str, Any]] = []
     final_report = ""
     verdict = ""
+    confidence = 0.0
     error_msg = ""
 
     logger.info(f"[webhook] 后台启动安全研判 session={session_id} source={alert_meta.get('source')}")
@@ -263,6 +264,11 @@ async def _run_triage_background(
             if etype == "report":
                 final_report = data.get("report", "") or final_report
                 verdict = data.get("verdict", "") or verdict
+                # confidence 落盘供置信度校准 join (report 事件透传)
+                try:
+                    confidence = float(data.get("confidence") or 0.0)
+                except (TypeError, ValueError):
+                    pass
             elif etype == "error":
                 error_msg = ev.get("message", "")
     except Exception as e:
@@ -276,6 +282,7 @@ async def _run_triage_background(
         "started_at": started_at,
         "finished_at": datetime.now(timezone.utc).isoformat(),
         "verdict": verdict,
+        "confidence": confidence,  # 校准闭环: disposition 真值 join 的自评端
         "report": final_report,
         "event_count": len(events),
         "error": error_msg,

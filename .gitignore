@@ -29,7 +29,12 @@ data/redis/
 data/minio/
 data/*.db
 data/*.jsonl
+data/*.jsonl.bak-*
 data/etcd/
+data/secops_sessions/
+data/secops_correlation/
+data/sigma_drafts/
+data/golden_set.jsonl
 
 # Node / open-webSearch
 node_modules/

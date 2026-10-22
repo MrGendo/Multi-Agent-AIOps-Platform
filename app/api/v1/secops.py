@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from app.security.service import stream_triage
+from app.security.sigma_forge import ForgeRequest
 
 router = APIRouter(prefix="/secops", tags=["secops"])
 
@@ -394,7 +395,9 @@ class DispositionRequest(BaseModel):
     verdict: str = Field(default="", description="最终判定 (可选, 四态; 关联会话报告里带)")
 
 
-_HISTORY_FILE = Path(__file__).resolve().parents[2] / "data" / "alert_history.jsonl"
+# 注意 parents[3]: app/api/v1/secops.py → v1 → api → app → 仓库根
+# (曾写成 parents[2], 处置记录静默落到 app/data/ — 与研判历史分家, 上下文反哺/校准全 join 不到)
+_HISTORY_FILE = Path(__file__).resolve().parents[3] / "data" / "alert_history.jsonl"
 
 
 def _append_disposition_history(record: dict) -> None:
@@ -545,3 +548,72 @@ from app.security.coverage_watch import coverage_report  # noqa: E402
 )
 async def secops_coverage(window_min: int = 30):
     return coverage_report(window_min=window_min)
+
+
+# ============================================================
+# 置信度校准 (Confidence Calibration) — 纯只读
+# ============================================================
+@router.get(
+    "/calibration",
+    summary="置信度校准报告 — 用人工处置真值验证自评置信度",
+    description=(
+        "把研判时 Analyst 自评置信度与人工处置登记 (resolved=真威胁 / "
+        "false_positive=误报) join, 产出: 分桶 reliability 表 / ECE / Brier "
+        "score / verdict×disposition 一致性矩阵.\n\n"
+        "纯只读离线计算, 无配对样本时返回 insufficient_data."
+    ),
+)
+async def secops_calibration():
+    from app.security.calibration import calibration_report
+
+    return calibration_report()
+
+
+# ============================================================
+# 检测规则反哺 (Detection Feedback Loop) — 研判经验 → Sigma 草稿
+# ============================================================
+class DetectionApproveRequest(BaseModel):
+    reviewer: str = Field(default="", max_length=100, description="审批人")
+    note: str = Field(default="", max_length=500, description="审批备注")
+
+
+@router.post(
+    "/detection/forge",
+    summary="研判经验 → Sigma 检测规则草稿 (draft 状态, 不下发设备)",
+    description=(
+        "检测→研判→经验→**再检测**闭环: 把已证实的研判经验 (人工 resolved 的攻击特征) "
+        "提炼为 Sigma 规则草稿.\n\n"
+        "- experience_text 入参直接给经验原文; 留空则自动向量召回经验库\n"
+        "- 产出落 data/sigma_drafts/, 状态 draft — **永不自动下发设备** "
+        "(检测规则改变全网告警面, 必须人工审批)\n"
+        "- 同指纹 (title+logsource+condition) 幂等去重"
+    ),
+)
+async def secops_detection_forge(req: ForgeRequest):
+    from app.security.sigma_forge import forge_from_experience
+
+    return await forge_from_experience(req)
+
+
+@router.get(
+    "/detection/drafts",
+    summary="Sigma 规则草稿列表 (draft/approved 状态机)",
+)
+async def secops_detection_drafts():
+    from app.security.sigma_forge import list_drafts
+
+    return list_drafts()
+
+
+@router.post(
+    "/detection/drafts/{fid}/approve",
+    summary="人工审批规则草稿 (draft → approved, 仅状态标记)",
+    description=(
+        "审批只改状态标记 — 本系统不自动下发任何设备; 下发由人用 Sigma 工具链 "
+        "(pySigma 转换器/设备管理台) 执行. 幂等: 重复审批返回 already_approved."
+    ),
+)
+async def secops_detection_approve(fid: str, req: DetectionApproveRequest):
+    from app.security.sigma_forge import approve_draft
+
+    return approve_draft(fid, reviewer=req.reviewer, note=req.note)

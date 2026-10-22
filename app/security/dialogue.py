@@ -93,7 +93,8 @@ class TriageSession:
         response_mode: str = "",
         iocs: Optional[Dict[str, List[str]]] = None,
         alert_type: str = "",
-    ):
+        confidence: float = 0.0,
+    ) -> None:
         self.session_id = session_id
         self.alert_text = alert_text
         self.report = report
@@ -102,6 +103,8 @@ class TriageSession:
         self.response_mode = response_mode
         self.iocs = iocs or {}
         self.alert_type = alert_type
+        # 研判时自评置信度 (校准闭环: 处置登记真值 join 的自评端)
+        self.confidence = float(confidence or 0.0)
         self.turns: List[DialogueTurn] = []
         self.evidence_contribs: List[str] = []  # 用户补充的取证材料汇总
         self.verdict_updates: List[Dict[str, Any]] = []
@@ -125,6 +128,7 @@ class TriageSession:
             "verdict": self.verdict,
             "severity": self.severity,
             "response_mode": self.response_mode,
+            "confidence": self.confidence,
             "iocs": self.iocs,
             "turns": [t.model_dump() for t in self.turns],
             "evidence_contribs": self.evidence_contribs,
@@ -144,6 +148,7 @@ class TriageSession:
             response_mode=d.get("response_mode", ""),
             iocs=d.get("iocs") or {},
             alert_type=d.get("alert_type", ""),
+            confidence=d.get("confidence", 0.0) or 0.0,
         )
         s.turns = [DialogueTurn(**t) for t in d.get("turns", [])]
         s.evidence_contribs = d.get("evidence_contribs", [])
@@ -159,7 +164,7 @@ _sessions: Dict[str, TriageSession] = {}
 
 def create_session(alert_text: str, report: str, verdict: str, severity: str,
                    response_mode: str, iocs: Dict[str, List[str]], alert_type: str,
-                   base_session_id: str = "") -> TriageSession:
+                   base_session_id: str = "", confidence: float = 0.0) -> TriageSession:
     """研判完成后创建对话会话 (幂等: 同 base 已存在则返回)."""
     sid = f"dlg-{base_session_id}" if base_session_id else f"dlg-{uuid.uuid4().hex[:12]}"
     if sid in _sessions:
@@ -173,7 +178,7 @@ def create_session(alert_text: str, report: str, verdict: str, severity: str,
         except Exception:
             pass
     s = TriageSession(sid, alert_text, report, verdict, severity, response_mode,
-                      iocs, alert_type)
+                      iocs, alert_type, confidence=confidence)
     _sessions[sid] = s
     s.save()
     return s

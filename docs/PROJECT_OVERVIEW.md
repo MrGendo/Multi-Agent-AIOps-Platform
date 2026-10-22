@@ -140,7 +140,7 @@ flowchart TD
 | SecretVault / MCP | `app/core/secret_manager.py` / `mcp_client.py` | 零信任凭据注入；FastMCP 六探针去中心化 |
 | SSE 事件总线 | `app/agents/stream_sink.py` | ContextVar 旁路穿透子图黑盒；多专家并发分支天然隔离 |
 
-### 3.2 SecOps 安全域（2026-09-17 新增，2026-09-18/20 扩展，`app/security/` 18 个模块）
+### 3.2 SecOps 安全域（2026-09-17 新增，2026-09-18/20 扩展，`app/security/` 20 个模块）
 
 | 模块 | 文件 | 职责与技术要点 |
 |---|---|---|
@@ -164,6 +164,8 @@ flowchart TD
 | 关联研判 | `correlation.py` | 聊天式累积告警：每轮 IOC 提取+按需 ReAct 取证+关联分析（CorrelationAnswer：关联点/下一步建议）；生成攻击链关联报告（attack_chain/correlations 两两关联/mitre/处置建议）；会话持久化 data/secops_correlation/；model 参数降级（主模型限流时备用通道） |
 | 图片证据 | `image_evidence.py` | 取证截图视觉转写为文字证据（GLM image_url 原生支持），走既有研判管线零改动 |
 | 历史管理 | `history_mgmt.py` | 三类存储（jsonl/sessions/correlation）统计+策略化清理（keep_days×keep_last）；**disposition 保护默认开**（人工处置登记行永不清理）；损坏行保守保留；内存注册表同步 |
+| 置信度校准 | `calibration.py` | 用人工处置真值（resolved=1/false_positive=0，deferred 不计）join 研判时自评置信度，产出分桶 reliability 表/ECE/Brier/verdict×处置矩阵；样本不足诚实 insufficient_data 不编造度量；纯只读零影响 |
+| Sigma 检测规则反哺 | `sigma_forge.py` | 检测→研判→经验→**再检测**飞轮：研判经验（入参或经验库召回）→ LLM 结构化提炼 SigmaRuleDraft → 确定性渲染合法 Sigma YAML（selector/condition 引用校验防编造；conditions 归一层容忍 LLM 形态漂移）→ data/sigma_drafts/ 草稿；**draft→approved 状态机，永不自动下发设备**（检测规则改变全网告警面，必须人签字）；同指纹幂等 |
 
 ### 3.3 横切层
 
@@ -278,7 +280,7 @@ flowchart TD
 ### 版本 A：项目经历条目（一段式）
 
 企业智能运维与安全运营双域多智能体平台｜架构设计与开发（2026.05~09，主导产品化重构）
-基于 FastAPI + LangGraph 构建统一事件入口的双域多智能体平台：域分类器（规则快路径 + LLM）将运维故障与安全告警分流——运维域走 Orchestrator-Experts-Merger 拓扑（真伪预检门 35ms 短路假告警、Send API 并发扇出多专家、Plan-Execute-Critic-Replan 闭环真实调用 MCP 工具取证、HITL 审批自愈）；安全域走 SecOps 六阶段研判流水（决策/执行分离：Triage 初筛拦截授权扫描零深查 token、Scout 正则 IOC 提取 + 威胁情报富化 + MITRE 映射、Analyst 决策四态判定与置信度回环、Investigator 执行子代理独立 ReAct 真实调只读工具取证后回传压缩发现——决策者只看摘要不看原始日志、Critic 证据-结论匹配审计、Reporter 按严重度硬规则分级响应），并支持 Wazuh/Suricata/Falco/长亭雷池/CEF 五类格式原生告警自动识别、MITRE ATT&CK 697 技术知识库检索（官方检测/缓解措施进研判）、对话式告警关联研判（聊天式累积多条告警渐进研判，一键生成攻击链聚合报告——真实 E2E 中三条独立看均 suspicious 的告警聚合升格 CRITICAL）、研判多轮对话工作台（三层记忆：滚动压缩短期记忆 + 向量长期经验库；无法判定时生成「设备→操作→证据」取证引导）与处置登记闭环（已处置/误报/搁置人工反馈反哺经验）。借鉴 Vigil/AI_SOC 设计落地 Prompt 注入防御（untrusted 区块 + 代码级注入扫描 + Critic 审计是否被操纵，真实攻击 E2E 验证 verdict 不被篡改）与 recall-never-corroborates 历史经验纪律。token 成本专项优化 66.5%（CI 基线防劣化）；两层诚实止损防线（25 万 token 事故 → 35ms/0 token）。425 例四层离线测试 + 六道 CI 门禁全绿，复杂场景真实 E2E 验证（APT 攻击链/注入攻击防御/子代理定向调查/关联研判聚合升级/对话研判/经验闭环/五类设备接入等）。
+基于 FastAPI + LangGraph 构建统一事件入口的双域多智能体平台：域分类器（规则快路径 + LLM）将运维故障与安全告警分流——运维域走 Orchestrator-Experts-Merger 拓扑（真伪预检门 35ms 短路假告警、Send API 并发扇出多专家、Plan-Execute-Critic-Replan 闭环真实调用 MCP 工具取证、HITL 审批自愈）；安全域走 SecOps 六阶段研判流水（决策/执行分离：Triage 初筛拦截授权扫描零深查 token、Scout 正则 IOC 提取 + 威胁情报富化 + MITRE 映射、Analyst 决策四态判定与置信度回环、Investigator 执行子代理独立 ReAct 真实调只读工具取证后回传压缩发现——决策者只看摘要不看原始日志、Critic 证据-结论匹配审计、Reporter 按严重度硬规则分级响应），并支持 Wazuh/Suricata/Falco/长亭雷池/CEF 五类格式原生告警自动识别、MITRE ATT&CK 697 技术知识库检索（官方检测/缓解措施进研判）、对话式告警关联研判（聊天式累积多条告警渐进研判，一键生成攻击链聚合报告——真实 E2E 中三条独立看均 suspicious 的告警聚合升格 CRITICAL）、研判多轮对话工作台（三层记忆：滚动压缩短期记忆 + 向量长期经验库；无法判定时生成「设备→操作→证据」取证引导）与处置登记闭环（已处置/误报/搁置人工反馈反哺经验）。借鉴 Vigil/AI_SOC 设计落地 Prompt 注入防御（untrusted 区块 + 代码级注入扫描 + Critic 审计是否被操纵，真实攻击 E2E 验证 verdict 不被篡改）与 recall-never-corroborates 历史经验纪律。研判置信度经人工处置真值校准（resolved/false_positive join 自评置信度，产出 ECE/Brier/分桶 reliability——真实 E2E：SSH 爆破恶意研判 conf 0.78/0.85 双样本 join 成功）；被证实的攻击经验反哺为 Sigma 检测规则草稿（LLM 结构化提炼 + 确定性渲染合法 Sigma YAML + 人工审批状态机，真实 E2E：Wazuh rule 5710 爆破经验 → 合法 Sigma 规则含 MITRE 引用与诚实误报场景），闭合「检测 → 研判 → 经验 → 再检测」飞轮且规则永不自动下发。token 成本专项优化 66.5%（CI 基线防劣化）；两层诚实止损防线（25 万 token 事故 → 35ms/0 token）。425 例四层离线测试 + 六道 CI 门禁全绿，复杂场景真实 E2E 验证（APT 攻击链/注入攻击防御/子代理定向调查/关联研判聚合升级/对话研判/经验闭环/五类设备接入等）。
 
 ### 版本 B：STAR 要点式
 
@@ -290,6 +292,7 @@ flowchart TD
 - **防幻觉工程**：Critic 审计（捏造/抛错即驳回）+ 无人值守纪律 + 结构化输出加固（envelope 解包/超时重试/白名单归一）。
 - **成本与诚实性**：token 优化 66.5% 入 CI 基线；双域对称止损（AIOps 两层防线 25 万→35ms；SecOps Triage 拦截误报零深查）；「服务故障≠证据不足」——LLM 超时永不触发调查回环（真实事故修复）。
 - **质量工程**：425 例四层离线测试 + SecOps 性能基线门禁（开销<5s/LLM 调用≤4 次/skip 零深查）+ 六道 CI；复杂场景真实 E2E 非 mock（含 UI 真实按钮 CDP 直驱验证）。
+- **度量与反哺闭环（个人设计巧思）**：置信度校准——把 LLM 自评置信度与人工处置真值（resolved/false_positive）join，产出 ECE/Brier/分桶 reliability，回答「模型说 80% 确信时实际有多大比例是真的」（样本不足诚实 insufficient_data 不编数字）；Sigma 检测规则反哺——被证实的研判经验提炼为合法 Sigma YAML 草稿（selector/condition 引用校验 + LLM 形态漂移归一层），draft→approved 人工审批状态机、永不自动下发，闭合「检测→研判→经验→再检测」飞轮。
 
 ### 版本 C：一句话（极简版）
 
