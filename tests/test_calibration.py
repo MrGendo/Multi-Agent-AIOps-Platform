@@ -123,13 +123,12 @@ def test_calibrated_direction(tmp_path):
 
 def test_api_endpoint_readonly(tmp_path):
     # GET /secops/calibration 纯只读, insufficient_data 也不 5xx
+    # (TestClient 不带 with — 项目纪律: 跳过 lifespan 的 API key 校验)
     from fastapi.testclient import TestClient
 
     from app.main import app
 
     cal._HISTORY_FILE = tmp_path / "none.jsonl"
-    with TestClient(app) as _:
-        pass  # 不触发 lifespan (项目纪律: TestClient 不带 with)
     client = TestClient(app)
     resp = client.get("/api/v1/secops/calibration")
     assert resp.status_code == 200
