@@ -1048,6 +1048,129 @@ body {
 /* 成本行 (小字) */
 .secops-cost { font-size: 11px; color: var(--text-4); margin-top: -6px; }
 
+/* ============ 邮件研判 (三态之三) ============ */
+/* 输入区: 左列 (原文+备注 纵排) + 右列按钮 */
+.email-inputrow { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: stretch; }
+.email-input-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+#email-raw {
+    width: 100%; resize: vertical; padding: 10px 12px; font-size: 12.5px;
+    font-family: var(--mono); color: var(--text-1); line-height: 1.55;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border); border-radius: 8px; outline: none;
+    transition: border-color .15s ease;
+}
+#email-raw:focus { border-color: rgba(113, 112, 255, 0.55); }
+#email-raw::placeholder { color: var(--text-4); }
+#email-note {
+    padding: 8px 12px; font-size: 12.5px; color: var(--text-2);
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border); border-radius: 8px; outline: none;
+}
+#email-note:focus { border-color: rgba(113, 112, 255, 0.55); }
+#email-note::placeholder { color: var(--text-4); }
+
+/* 四态判定大字 (右面板) */
+.email-verdict { font-size: 22px; font-weight: 700; margin: 2px 0 0; transition: color .2s var(--ease-out); }
+.email-verdict.v-phishing   { color: var(--red); }
+.email-verdict.v-spam       { color: var(--amber); }
+.email-verdict.v-suspicious { color: #fb923c; }
+.email-verdict.v-benign     { color: var(--green); }
+#email-phish-type { font-size: 13px; font-weight: 590; margin-top: 1px; }
+.email-intent { font-size: 12px; line-height: 1.55; color: var(--text-3); margin-top: 1px; }
+
+/* findings 里的转写折叠块 */
+.email-transcript { margin-top: 4px; }
+.email-transcript summary { cursor: pointer; color: var(--text-3); font-size: 11.5px; }
+.email-transcript pre {
+    margin: 6px 0 0; padding: 8px 10px; font-size: 11px; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-all;
+    background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: 6px;
+}
+
+/* 报告区 */
+.email-report-panel .email-report-body { padding: 4px 18px 18px; }
+.email-report-body h4 { margin: 18px 0 8px; font-size: 13px; font-weight: 600; }
+.email-report-body .email-sec-title { border-top: 1px solid var(--border-subtle); padding-top: 14px; }
+.email-reason p { margin: 4px 0 0; font-size: 13px; line-height: 1.65; color: var(--text-2); }
+
+/* 信号卡: 类别徽章 + 说明 + 原文证据 */
+.signal-card {
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; margin-bottom: 8px;
+    background: rgba(255, 255, 255, 0.015);
+}
+.signal-card.signal-normal { opacity: .8; }
+.signal-head { display: flex; align-items: center; gap: 8px; }
+.signal-cat { font-size: 11.5px; font-weight: 590; color: var(--text-2); }
+.signal-desc { font-size: 12.5px; line-height: 1.55; color: var(--text-2); margin-top: 4px; }
+.signal-evidence {
+    font-size: 11px; color: var(--text-3); margin-top: 6px;
+    white-space: pre-wrap; word-break: break-all;
+    border-left: 2px solid var(--border); padding: 2px 8px;
+}
+
+/* headers 键值表 */
+.email-hdrs { border-collapse: collapse; width: 100%; font-size: 11.5px; margin-top: 4px; }
+.email-hdrs td { border: 1px solid var(--border-subtle); padding: 4px 10px; word-break: break-all; }
+.email-hdrs td:first-child { color: var(--text-3); white-space: nowrap; width: 110px; }
+.email-sub-label { font-size: 11px; color: var(--text-4); margin: 10px 0 4px; }
+.email-url { font-size: 11.5px; color: var(--text-2); padding: 2px 0; word-break: break-all; }
+.email-att {
+    display: inline-block; font-size: 11.5px; color: var(--text-2);
+    border: 1px solid var(--border); border-radius: 5px; padding: 1px 8px; margin: 2px 6px 2px 0;
+}
+
+/* 验证剧本步骤卡 */
+.pb-step {
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; margin-bottom: 8px;
+    background: rgba(255, 255, 255, 0.015);
+}
+.pb-step-name { font-size: 12.5px; font-weight: 590; }
+.pb-how { font-size: 12px; line-height: 1.55; color: var(--text-3); margin-top: 2px; }
+.pb-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.pb-actions a {
+    font-size: 11.5px; color: var(--accent-bright); text-decoration: none;
+    border: 1px solid var(--border); border-radius: 5px; padding: 2px 8px;
+}
+.pb-actions a:hover { border-color: var(--accent-bright); }
+.pb-cmd-wrap { display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; }
+.pb-cmd-wrap pre {
+    flex: 1; margin: 0; padding: 6px 10px; font-size: 11px; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-all;
+    background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: 6px;
+}
+.pb-copy { flex-shrink: 0; font-size: 11px; padding: 4px 10px; }
+
+/* 链接沙箱验证卡 (link_report 事件) */
+.lv-card {
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; margin-bottom: 8px;
+    background: rgba(255, 255, 255, 0.015);
+}
+.lv-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lv-badge {
+    display: inline-block; font-size: 10.5px; font-weight: 600; white-space: nowrap;
+    padding: 1px 7px; border-radius: 5px;
+}
+.lv-badge.lv-malicious { color: #fff; background: var(--red); }
+.lv-badge.lv-clean { color: #fff; background: var(--green); }
+.lv-badge.lv-pwform { color: #fff; background: var(--amber); }
+.lv-badge.lv-skip { color: var(--text-3); background: var(--surface-hover); }
+.lv-badge.lv-error { color: var(--amber); background: color-mix(in srgb, var(--amber) 15%, transparent); }
+.lv-url { font-size: 11.5px; color: var(--text-2); word-break: break-all; }
+.lv-detail { margin-top: 4px; }
+.lv-detail summary { cursor: pointer; color: var(--text-3); font-size: 11.5px; }
+.lv-detail .mono {
+    margin: 6px 0 0; padding: 6px 10px; font-size: 11px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-all;
+    background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: 6px;
+}
+.lv-shot { margin-top: 4px; }
+.lv-shot a { font-size: 11.5px; color: var(--accent-bright); text-decoration: none; }
+.lv-shot a:hover { text-decoration: underline; }
+
+
 /* 跨域反向提示条 (AIOps 报告 → 建议移交 SecOps) */
 .cross-domain-hint {
     display: flex; align-items: center; gap: 12px; justify-content: space-between;

@@ -157,15 +157,16 @@
     <!-- ====================== SecOps Tab ====================== -->
     <section id="tab-secops" class="tab-pane hidden">
         <div class="secops-wrap">
-            <!-- 模式切换: 单条研判 ↔ 关联研判 (双态, 无多余按钮) -->
+            <!-- 模式切换: 单条研判 ↔ 关联研判 ↔ 邮件研判 (三态, 无多余按钮) -->
             <div class="secops-mode-switch">
                 <button id="secops-mode-single" class="mode-chip on" type="button" aria-pressed="true">单条研判</button>
                 <button id="secops-mode-corr" class="mode-chip" type="button" aria-pressed="false">关联研判</button>
-                <span class="mode-switch-hint t-dim">单条: 五阶段流水深查一条告警 · 关联: 聊天式累积多条告警, 出攻击链关联报告</span>
+                <button id="secops-mode-email" class="mode-chip" type="button" aria-pressed="false">邮件研判</button>
+                <span class="mode-switch-hint t-dim">单条: 五阶段流水深查一条告警 · 关联: 聊天式累积多条告警, 出攻击链报告 · 邮件: 钓鱼/垃圾邮件四态判定</span>
             </div>
 
             <!-- 告警输入 (单条模式) -->
-            <div class="aiops-inputrow">
+            <div id="secops-single-input" class="aiops-inputrow">
                 <textarea id="secops-query" rows="2" spellcheck="false"
                     placeholder="粘贴安全告警: IDS/WAF 事件、可疑行为描述、攻击线索 (IP/hash/域名/CVE 会自动提取为 IOC)…">SSH 暴力破解告警: 来自 203.0.113.42, 10 次失败登录, 目标主机 10.0.0.5 prod-web-01</textarea>
                 <div class="btn-row btn-row-inline">
@@ -178,7 +179,7 @@
             </div>
 
             <!-- 五阶段流水 + 关键指标 -->
-            <div class="secops-midrow">
+            <div id="secops-midrow" class="secops-midrow">
                 <div class="panel secops-pipeline-panel">
                     <div class="panel-head">研判流水 <span id="secops-status" class="status-chip mono">未开始</span></div>
                     <div id="secops-pipeline" class="secops-pipeline">
@@ -309,6 +310,78 @@
             </div>
             <div id="secops-corr-cost" class="secops-cost mono hidden"></div>
 
+            <!-- ============ 邮件研判模式 (三态之三, 与单条/关联互斥) ============ -->
+            <div id="secops-email-wrap" class="hidden">
+                <!-- 输入: 邮件原文粘贴 / 截图上传 (二选一, 截图走视觉转写后同管线) -->
+                <div class="email-inputrow">
+                    <div class="email-input-col">
+                        <textarea id="email-raw" rows="8" spellcheck="false"
+                            placeholder="粘贴可疑邮件原文: 完整 .eml 源码 (含 headers) 最佳; 网页邮箱可复制「发件人/主题/正文/链接」摘录 — 发件人伪造、URL 欺骗、危险附件会被代码层先行检出, LLM 再做话术与意图研判…"></textarea>
+                        <input id="email-note" type="text" spellcheck="false"
+                            placeholder="分析师备注 (可选): 上下文能显著提升判定准确度, 如「财务称从未订购此服务」「该发件域从未有过往来」">
+                    </div>
+                    <div class="btn-row btn-row-inline">
+                        <label class="btn-ghost img-upload-btn" title="上传邮件截图 (网页邮箱/客户端截图), 视觉模型忠实转写后走同一研判管线">
+                            📷 截图<input type="file" id="email-img-input" accept="image/png,image/jpeg,image/gif,image/webp" class="hidden-file-input">
+                        </label>
+                        <button id="email-start" class="btn-primary">开始研判</button>
+                        <button id="email-stop" class="btn-ghost" disabled>停止</button>
+                    </div>
+                </div>
+
+                <!-- 过程 (左: 简化流水 + 事件流) / 判定 (右) -->
+                <div class="secops-midrow">
+                    <div class="panel secops-pipeline-panel">
+                        <div class="panel-head">研判流水 <span id="email-status" class="status-chip mono">未开始</span></div>
+                        <div id="email-pipeline" class="secops-pipeline">
+                            <div class="secops-stage" data-stage="transcribe">
+                                <div class="stage-dot"></div>
+                                <div class="stage-name">截图转写</div>
+                                <div class="stage-detail">视觉模型忠实转写 (仅截图入口)</div>
+                            </div>
+                            <div class="secops-stage" data-stage="parse">
+                                <div class="stage-dot"></div>
+                                <div class="stage-name">确定性解析</div>
+                                <div class="stage-detail">headers 伪造 · URL 欺骗 · 危险附件</div>
+                            </div>
+                            <div class="secops-stage" data-stage="verify">
+                                <div class="stage-dot"></div>
+                                <div class="stage-name">链接验证</div>
+                                <div class="stage-detail">urlscan 沙箱代访 · 证据进研判</div>
+                            </div>
+                            <div class="secops-stage" data-stage="analyze">
+                                <div class="stage-dot"></div>
+                                <div class="stage-name">语义研判</div>
+                                <div class="stage-detail">话术 · 意图 · 仿冒识别</div>
+                            </div>
+                            <div class="secops-stage" data-stage="report">
+                                <div class="stage-dot"></div>
+                                <div class="stage-name">报告</div>
+                                <div class="stage-detail">四态判定 · 证据 · 验证剧本</div>
+                            </div>
+                        </div>
+                        <div id="email-findings" class="secops-findings scroll-pane"></div>
+                    </div>
+                    <div class="panel secops-side-panel">
+                        <div class="panel-head">判定结果</div>
+                        <div class="secops-verdict-block">
+                            <div class="metric-label">Classification</div>
+                            <div id="email-verdict" class="email-verdict">—</div>
+                            <div id="email-confidence" class="metric-sub">等待研判</div>
+                            <div class="metric-label" style="margin-top:14px">恶意细分类型</div>
+                            <div id="email-phish-type">—</div>
+                            <div class="metric-label" style="margin-top:14px">邮件意图</div>
+                            <div id="email-intent" class="email-intent">—</div>
+                            <div class="metric-label" style="margin-top:14px">信号统计</div>
+                            <div id="email-signal-count" class="mono">—</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 报告区 (report 事件后填充) -->
+                <div id="secops-email-report" class="hidden"></div>
+            </div>
+
             <!-- 历史研判对话 -->
             <div class="panel secops-history-panel">
                 <div class="panel-head">
@@ -431,6 +504,7 @@
 </aside>
 
 <script src="/app.js?v=20261014a"></script>
-<script src="/correlation.js?v=20260920a"></script>
+<script src="/correlation.js?v=20261030a"></script>
+<script src="/email.js?v=20261030a"></script>
 </body>
 </html>
