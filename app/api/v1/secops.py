@@ -7,6 +7,7 @@ POST /api/v1/secops/triage
 与 /aiops/diagnose 同构, 前端复用同一 SSE 消费模式.
 """
 
+import asyncio
 import json
 from pathlib import Path
 from typing import AsyncIterator
@@ -548,6 +549,221 @@ from app.security.coverage_watch import coverage_report  # noqa: E402
 )
 async def secops_coverage(window_min: int = 30):
     return coverage_report(window_min=window_min)
+
+
+# ============================================================
+# 钓鱼邮件分析 (Email Triage)
+# ============================================================
+class EmailTriageRequest(BaseModel):
+    session_id: str = Field(default="email-default", description="会话 ID")
+    raw_email: str = Field(
+        default="",
+        description="邮件原文 (.eml 源码或粘贴的正文/headers 摘录, 自动识别)",
+        max_length=60000,
+    )
+    note: str = Field(default="", max_length=2000, description="分析师备注")
+
+
+class EmailImageRequest(BaseModel):
+    """邮件截图分析: 视觉转写后走同一邮件研判管线."""
+
+    image_b64: str = Field(default="", description="截图 base64 (不含 data: 前缀)")
+    mime: str = Field(default="image/png")
+    note: str = Field(default="", max_length=2000, description="分析师备注")
+
+
+_EMAIL_EXTRACT_PROMPT = """你是邮件安全取证分析员。分析师上传了一封可疑邮件的截图 (网页邮箱截图 / 客户端截图 / .eml 文本截图)。
+
+请把截图完整转写为邮件分析可用的文字, 要求:
+1. 先转写所有可见的邮件头: 发件人 (From, 含显示名与实际地址)、收件人、回复地址 (Reply-To)、主题、日期 — 原样抄录, 看不清标注 [不可辨认]
+2. 再完整转写正文内容 (含称呼、正文、署名)
+3. 转写所有可见的链接 URL 与附件名 (哪怕在按钮文字里, 把按钮背后的链接写出来; 只见按钮文字没见 URL 就标注 [按钮: xxx, 链接不可见])
+4. 不要推测补全, 不要给结论 — 只做忠实转写
+直接输出转写文本, 不要寒暄。"""
+
+
+async def _run_email_triage_sse(raw_email: str, note: str, session_id: str):
+    """邮件分析 SSE 流: start → parsing → analyzing → report → complete."""
+    from app.security.email_triage import analyze_email, deterministic_signals, parse_email
+
+    # data 必须显式 json.dumps — 不经序列化的 dict 会被 SSE 库按 Python repr 输出
+    # (单引号), 前端 JSON.parse 直接失败; 与本文件其他 SSE 接口的序列化纪律一致
+    async def _ev(etype: str, stage: str, message: str, **payload):
+        return {"event": etype, "data": json.dumps({"stage": stage, "message": message, **payload}, ensure_ascii=False)}
+
+    # 链接沙箱验证启用条件: 配了 urlscan key 且提取到 URL
+    from app.security.link_verifier import sandbox_key
+
+    auto_verify = bool(sandbox_key())
+
+    yield await _ev("start", "start", "邮件分析启动")
+    sandbox_task = None   # try 前初始化 — finally 任何路径下可安全引用
+    try:
+        # 阶段 1: 确定性解析 (毫秒级, 先给用户信号)
+        parsed = parse_email(raw_email)
+        signals = deterministic_signals(parsed)
+        yield await _ev(
+            "parsing", "parsing",
+            f"解析完成: {len(parsed['headers'])} 个 header · {len(parsed['urls'])} 条链接 · "
+            f"{len(parsed['attachments'])} 个附件 · 确定性信号 {len(signals)} 条",
+            headers=parsed["headers"],
+            urls=parsed["urls"],
+            attachments=parsed["attachments"],
+            signals=signals,
+            auto_verify=auto_verify and bool(parsed["urls"]),
+        )
+
+        # 阶段 2 (可选): 链接沙箱验证 — 先取证后研判 (与 SecOps 流水同哲学):
+        # 解析完立即并行提交沙箱 (submit 秒级), LLM 研判前等一个窗口收证据
+        if auto_verify and parsed["urls"]:
+            from app.security.link_verifier import verify_urls_bounded
+
+            sandbox_task = asyncio.create_task(verify_urls_bounded(parsed["urls"]))
+            yield await _ev(
+                "verifying", "verifying",
+                "沙箱验证中 (urlscan 代访, 本机零接触, 最多 3 条, 等待窗 ≤75s)…",
+            )
+
+        # 阶段 3: LLM 语义研判 — 沙箱证据 (若有) 注入上下文
+        sandbox_verdicts: list = []
+        sandbox_cancelled: list = []
+        sandbox_evidence = ""
+        if sandbox_task:
+            from app.security.link_verifier import format_sandbox_evidence
+
+            sandbox_verdicts, sandbox_cancelled = await sandbox_task
+            sandbox_evidence = format_sandbox_evidence(sandbox_verdicts)
+            verified_n = sum(1 for v in sandbox_verdicts if v.get("status") == "verified")
+            yield await _ev(
+                "analyzing", "analyzing",
+                f"语义研判中 (发件人身份/话术/意图{' + 沙箱落地页证据' if sandbox_evidence else ''})…",
+                sandbox_verified=verified_n,
+            )
+        else:
+            yield await _ev("analyzing", "analyzing", "语义研判中 (发件人身份/话术/意图)…")
+
+        result = await analyze_email(raw_email, note=note, sandbox_evidence=sandbox_evidence)
+        # 沙箱结论随报告一并交付 (前端信号卡 + 验证卡数据源)
+        result["sandbox_link_verdicts"] = sandbox_verdicts
+
+        yield await _ev(
+            "report", "report",
+            f"研判完成: {result['classification']} ({result['confidence']:.0%})"
+            + (f" · 沙箱验证 {sum(1 for v in sandbox_verdicts if v.get('status') == 'verified')} 条" if sandbox_task else ""),
+            result=result,
+        )
+
+        # 等待窗外被取消的 URL — 后补告知 (标注未参与研判)
+        if sandbox_cancelled:
+            yield await _ev(
+                "link_report", "link_report",
+                f"{len(sandbox_cancelled)} 条链接沙箱超时 (未参与本次研判): "
+                + ", ".join(sandbox_cancelled[:3]),
+                link_verdicts=[{
+                    "url": u, "status": "skipped", "malicious": None, "score": None,
+                    "categories": [], "final_url": None, "domain_age_days": None,
+                    "screenshot": None, "error": "等待窗超时被取消, 未参与本次研判",
+                } for u in sandbox_cancelled],
+            )
+
+        yield await _ev("complete", "complete", "邮件分析完成", session_id=session_id)
+    except Exception as exc:
+        logger.exception(f"[secops] 邮件分析异常 session={session_id}: {exc}")
+        yield await _ev(
+            "error", "error",
+            f"邮件分析失败: {type(exc).__name__}: {exc}",
+        )
+    finally:
+        # 客户端断连 (CancelledError 不进上面的 except) 也必须收回沙箱任务 —
+        # 否则后台继续轮询 urlscan 与视觉 LLM, 白烧额度 (review 实测复现)
+        if sandbox_task is not None:
+            sandbox_task.cancel()
+
+
+@router.post(
+    "/email/triage",
+    summary="钓鱼邮件分析 — 垃圾/恶意双维度判定 + 判断依据 + 安全验证剧本",
+    description=(
+        "粘贴 .eml 源码或邮件摘录 (headers+正文), 输出:\n\n"
+        "- classification 四态: **phishing**(恶意攻击) / **spam**(垃圾骚扰) / suspicious / benign\n"
+        "- phishing_type 细分: 凭据钓鱼/恶意附件投毒/BEC 冒充诈骗/勒索恐吓/中奖诈骗\n"
+        "- indicators: 每条判断依据带原文证据 (发件人伪造/链接欺骗/紧迫话术/危险附件…)\n\n"
+        "确定性解析先行 (header 伪造/URL 欺骗模式/危险附件类型 — 代码层验证), LLM 只做语义层; "
+        "邮件原文 untrusted 包裹防注入。SSE 事件: start→parsing→analyzing→report→complete."
+    ),
+)
+async def secops_email_triage(req: EmailTriageRequest):
+    return EventSourceResponse(_run_email_triage_sse(req.raw_email, req.note, req.session_id))
+
+
+@router.post(
+    "/email/triage/image",
+    summary="钓鱼邮件分析 (截图入口) — 视觉转写邮件内容后走同一研判管线",
+    description=(
+        "上传邮件截图 (网页邮箱/客户端截图), 视觉模型先忠实转写 (发件人/主题/正文/链接/附件名), "
+        "转写文本再走 /email/triage 同一管线。适合只有截图、拿不到原文的场景。"
+    ),
+)
+async def secops_email_triage_image(req: EmailImageRequest):
+    from app.security.image_evidence import validate_image_b64
+
+    async def _gen():
+        yield {"event": "start", "data": json.dumps({"stage": "start", "message": "邮件截图分析启动"}, ensure_ascii=False)}
+        ok, err = validate_image_b64(req.image_b64, req.mime)
+        if not ok:
+            yield {"event": "error", "data": json.dumps({"stage": "error", "message": f"图片校验失败: {err}"}, ensure_ascii=False)}
+            return
+        yield {"event": "transcribing", "data": json.dumps({"stage": "transcribing", "message": "视觉模型转写邮件截图中…"}, ensure_ascii=False)}
+        transcript = await _extract_email_image(req.image_b64, req.mime, req.note)
+        if not transcript:
+            yield {"event": "error", "data": json.dumps({"stage": "error", "message": "截图转写失败 (视觉模型不可用或图片无法辨认)"}, ensure_ascii=False)}
+            return
+        yield {
+            "event": "transcript",
+            "data": json.dumps({
+                "stage": "transcript",
+                "message": f"转写完成 ({len(transcript)} 字)",
+                "transcript": transcript,
+            }, ensure_ascii=False),
+        }
+        # 转写文本走同一研判管线
+        async for ev in _run_email_triage_sse(transcript, req.note, f"email-img-{int(_time_mod.time())}"):
+            yield ev
+
+    return EventSourceResponse(_gen())
+
+
+async def _extract_email_image(image_b64: str, mime: str, note: str) -> str:
+    """截图 → 邮件文本转写 (专用 prompt, 与 image_evidence 同机制)."""
+    try:
+        from langchain_core.messages import HumanMessage
+
+        # 延迟导入避免模块级循环依赖 (与 email_triage.py 同来源)
+        from app.core.llm import get_chat_llm
+        from app.runtime.agent_harness import get_agent_harness
+
+        harness = get_agent_harness()
+        model = harness.router_model()
+        llm = get_chat_llm(model=model, temperature=0, timeout=120, max_retries=2)
+        note_line = f"\n(分析师备注: {note})" if note else ""
+        msg = HumanMessage(content=[
+            {"type": "text", "text": _EMAIL_EXTRACT_PROMPT + note_line},
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{image_b64}"}},
+        ])
+        resp = await llm.ainvoke([msg])
+        content = getattr(resp, "content", resp)
+        if isinstance(content, list):
+            text = "".join(
+                item.get("text", "") for item in content
+                if isinstance(item, dict) and item.get("type") == "text"
+            )
+        else:
+            text = str(content)
+        logger.info(f"[EmailTriage] 截图转写完成 ({len(text)} 字)")
+        return text.strip()
+    except Exception as exc:
+        logger.warning(f"[EmailTriage] 截图转写失败 (fail-soft): {exc}")
+        return ""
 
 
 # ============================================================

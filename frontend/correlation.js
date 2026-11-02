@@ -8,20 +8,45 @@ let corrAbort = null;          // AbortController
 let corrReportMd = "";         // 最近报告的 markdown 源 (导出/复制用)
 let corrDispTarget = "";       // 处置登记目标: "single" 或 corrCid
 
-// --- 模式切换 (双态) ---
+// --- 模式切换 (三态: 单条 / 关联 / 邮件, 互斥显示) ---
+// 各模式专属区块清单; 结果类区块 (报告/处置/引导等) 切走即隐藏, 切回不恢复 — 需重新研判
+const SECOPS_MODE_BLOCKS = {
+    single: ["secops-single-input", "secops-midrow", "secops-report", "secops-attack-chain",
+             "secops-vuln-explains", "secops-disposition", "secops-guidance", "secops-dialogue-wrap"],
+    corr:   ["secops-corr-wrap", "secops-corr-report", "secops-corr-report-actions", "secops-corr-cost"],
+    email:  ["secops-email-wrap"],
+};
+// 切回时不主动显示的区块 (初始即 hidden, 由研判流程按需亮出)
+const SECOPS_RESULT_BLOCKS = new Set([
+    "secops-report", "secops-attack-chain", "secops-vuln-explains", "secops-disposition",
+    "secops-guidance", "secops-dialogue-wrap", "secops-corr-report", "secops-corr-report-actions",
+    "secops-corr-cost", "secops-email-report",
+]);
+
 function switchSecopsMode(mode) {
-    const single = document.getElementById("secops-mode-single");
-    const corr = document.getElementById("secops-mode-corr");
-    const corrWrap = document.getElementById("secops-corr-wrap");
-    const isCorr = mode === "corr";
-    single.classList.toggle("on", !isCorr);
-    single.setAttribute("aria-pressed", String(!isCorr));
-    corr.classList.toggle("on", isCorr);
-    corr.setAttribute("aria-pressed", String(isCorr));
-    corrWrap.classList.toggle("hidden", !isCorr);
+    const chip = document.getElementById(`secops-mode-${mode}`);
+    if (!chip) return;
+    document.querySelectorAll(".secops-mode-switch .mode-chip").forEach((c) => {
+        const on = c === chip;
+        c.classList.toggle("on", on);
+        c.setAttribute("aria-pressed", String(on));
+    });
+    for (const [m, ids] of Object.entries(SECOPS_MODE_BLOCKS)) {
+        const active = m === mode;
+        for (const id of ids) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            if (!active) {
+                el.classList.add("hidden");           // 非当前模式: 一律隐藏
+            } else if (!SECOPS_RESULT_BLOCKS.has(id)) {
+                el.classList.remove("hidden");        // 当前模式: 常驻骨架显示, 结果类留给流程控制
+            }
+        }
+    }
 }
 document.getElementById("secops-mode-single").addEventListener("click", () => switchSecopsMode("single"));
 document.getElementById("secops-mode-corr").addEventListener("click", () => switchSecopsMode("corr"));
+document.getElementById("secops-mode-email").addEventListener("click", () => switchSecopsMode("email"));
 
 // --- 聊天流渲染 ---
 function corrAppend(html, cls = "msg msg-ai") {

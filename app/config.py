@@ -80,6 +80,15 @@ class Settings(BaseSettings):
             ">0 时所有 GLM 调用前强制 sleep, 避开 1302 速率限制; 0 = 不限."
         ),
     )
+
+    # ==================== 链接沙箱验证 (urlscan.io) ====================
+    # 邮件研判的链接主动验证: 提交 urlscan 沙箱代访, 本方网络零接触.
+    # key 为空 = 功能整体关闭 (保持零接触现状, SSE 不发 verifying 事件).
+    urlscan_api_key: str = Field(default="", description="urlscan.io API Key (空=关闭链接自动验证)")
+    urlscan_visibility: str = Field(
+        default="public",
+        description="urlscan 扫描可见性: public (免费档) / unlisted",
+    )
     dashscope_embedding_model: str = Field(
         default="text-embedding-v4", description="Embedding 模型"
     )
