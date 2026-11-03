@@ -233,7 +233,11 @@ def test_analyze_bec_text(monkeypatch):
 
 # ---------- API 端点 ----------
 
-def test_api_email_triage_sse(monkeypatch):
+def test_api_email_triage_sse(monkeypatch, tmp_path_factory):
+    # 隔离历史落盘: SSE 全流程会 append, 不 patch 会写真实 data/email_history.jsonl
+    import app.security.email_history as _eh
+    monkeypatch.setattr(_eh, "_EMAIL_HISTORY", tmp_path_factory.mktemp("emh") / "h.jsonl")
+
     from fastapi.testclient import TestClient
 
     from app.config import settings
@@ -259,3 +263,38 @@ def test_api_email_triage_sse(monkeypatch):
     assert stages == ["start", "parsing", "analyzing", "report", "complete"]
     report = [json.loads(e) for e in events if json.loads(e).get("stage") == "report"][0]
     assert report["result"]["classification"] == "spam"
+
+
+# ---------- 沉淀注入 (批 4): 空态字节一致 + 注入文案纪律 ----------
+
+from app.security.email_triage import _USER_TMPL
+
+_OLD_TMPL = """{untrusted_block}
+
+【代码层确定性信号 (已验证事实)】
+{signals_block}
+{sandbox_block}
+请输出结构化研判 (EmailVerdict)。"""
+
+
+def test_inject_empty_state_byte_identical():
+    """三个注入参数全空时, 渲染结果与旧管线逐字节一致 (回归保障)."""
+    new = _USER_TMPL.format(
+        untrusted_block="U", signals_block="S",
+        history_block="", sandbox_block="", experience_block="",
+    )
+    old = _OLD_TMPL.format(untrusted_block="U", signals_block="S", sandbox_block="")
+    assert new == old
+
+
+def test_inject_blocks_copywriting_discipline():
+    """注入态文案纪律: 历史=已验证事实, 经验=仅供参考不可单独定性 (评测 4.2)."""
+    rendered = _USER_TMPL.format(
+        untrusted_block="U", signals_block="S",
+        history_block="\n\n【同发件域历史判定 (本系统历史记录, 已验证事实)】\n域 X 有 3 次",
+        sandbox_block="\n\n【链接沙箱验证 (第三方 urlscan 代访的已验证事实 — 与确定性信号同等采纳)】\n- 沙箱",
+        experience_block="\n\n【同类邮件历史研判经验 (仅供参考, 不可单独作为定性依据 — 需以本案证据为准)】\n# 经验",
+    )
+    assert "已验证事实" in rendered
+    assert "仅供参考, 不可单独作为定性依据" in rendered
+    assert "域 X 有 3 次" in rendered and "# 经验" in rendered

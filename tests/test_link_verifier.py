@@ -62,7 +62,7 @@ class _FakeClient:
 
 
 @pytest.fixture
-def patch_client(monkeypatch):
+def patch_client(monkeypatch, tmp_path_factory):
     def _patch(client):
         # 注意: 桩必须是同步函数 — 真实 AsyncClient(...) 构造调用返回
         # context manager 而非 coroutine, async with 才能成立
@@ -181,8 +181,11 @@ def test_dedup_and_limit(monkeypatch, patch_client):
 
 # ---------- SSE: 无 key 时行为与现状一致 ----------
 
-def test_sse_no_key_skips_verify_events(monkeypatch):
-    import json
+def test_sse_no_key_skips_verify_events(monkeypatch, tmp_path_factory):
+
+    # 隔离历史落盘: SSE 全流程会 append, 不 patch 会写真实 data/email_history.jsonl
+    import app.security.email_history as _eh
+    monkeypatch.setattr(_eh, "_EMAIL_HISTORY", tmp_path_factory.mktemp("emh") / "h.jsonl")
 
     from app.api.v1 import secops as secops_api
     monkeypatch.setattr(settings, "urlscan_api_key", "")
@@ -210,8 +213,11 @@ def test_sse_no_key_skips_verify_events(monkeypatch):
     assert parsing["auto_verify"] is False
 
 
-def test_sse_with_key_emits_verify_events(monkeypatch):
-    import json
+def test_sse_with_key_emits_verify_events(monkeypatch, tmp_path_factory):
+
+    # 隔离历史落盘: SSE 全流程会 append, 不 patch 会写真实 data/email_history.jsonl
+    import app.security.email_history as _eh
+    monkeypatch.setattr(_eh, "_EMAIL_HISTORY", tmp_path_factory.mktemp("emh") / "h.jsonl")
 
     from app.api.v1 import secops as secops_api
     monkeypatch.setattr(settings, "urlscan_api_key", "k")
@@ -244,9 +250,9 @@ def test_sse_with_key_emits_verify_events(monkeypatch):
     captured = {}
     orig_analyze = et.analyze_email
 
-    async def spy_analyze(raw_email, note="", sandbox_evidence=""):
+    async def spy_analyze(raw_email, note="", sandbox_evidence="", **kw):
         captured["sandbox_evidence"] = sandbox_evidence
-        return await orig_analyze(raw_email, note=note, sandbox_evidence=sandbox_evidence)
+        return await orig_analyze(raw_email, note=note, sandbox_evidence=sandbox_evidence, **kw)
     monkeypatch.setattr(et, "analyze_email", spy_analyze)
 
     async def collect():
@@ -267,9 +273,11 @@ def test_sse_with_key_emits_verify_events(monkeypatch):
     assert "仿冒 某大学" in captured.get("sandbox_evidence", "")
 
 
-def test_sse_sandbox_timeout_degrades_to_no_evidence(monkeypatch):
+def test_sse_sandbox_timeout_degrades_to_no_evidence(monkeypatch, tmp_path_factory):
     """等待窗超时: report 不带沙箱证据, link_report 后补 cancelled, complete 正常."""
-    import json
+    # 隔离历史落盘: SSE 全流程会 append, 不 patch 会写真实 data/email_history.jsonl
+    import app.security.email_history as _eh
+    monkeypatch.setattr(_eh, "_EMAIL_HISTORY", tmp_path_factory.mktemp("emh") / "h.jsonl")
 
     from app.api.v1 import secops as secops_api
     monkeypatch.setattr(settings, "urlscan_api_key", "k")
@@ -291,9 +299,9 @@ def test_sse_sandbox_timeout_degrades_to_no_evidence(monkeypatch):
     captured = {}
     orig_analyze = et.analyze_email
 
-    async def spy_analyze(raw_email, note="", sandbox_evidence=""):
+    async def spy_analyze(raw_email, note="", sandbox_evidence="", **kw):
         captured["sandbox_evidence"] = sandbox_evidence
-        return await orig_analyze(raw_email, note=note, sandbox_evidence=sandbox_evidence)
+        return await orig_analyze(raw_email, note=note, sandbox_evidence=sandbox_evidence, **kw)
     monkeypatch.setattr(et, "analyze_email", spy_analyze)
 
     async def collect():
@@ -344,7 +352,7 @@ def test_detect_form_empty_dom():
 
 # ---------- 视觉判定 (mock LLM + fail-soft) ----------
 
-def test_judge_landing_page_mock(monkeypatch):
+def test_judge_landing_page_mock(monkeypatch, tmp_path_factory):
     async def fake_structured(llm=None, schema_cls=None, messages=None, model_name=None, **kw):
         return schema_cls(
             claimed_identity="某大学统一身份认证", credential_form=True,
@@ -361,7 +369,7 @@ def test_judge_landing_page_mock(monkeypatch):
     assert j["impersonation_target"] == "某大学"
 
 
-def test_judge_landing_page_fail_soft(monkeypatch):
+def test_judge_landing_page_fail_soft(monkeypatch, tmp_path_factory):
     async def boom(**kw):
         raise RuntimeError("LLM 不可用")
     import app.core.structured as structured_mod

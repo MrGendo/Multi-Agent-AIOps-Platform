@@ -160,3 +160,67 @@ def delete_experiences(content_contains: str = "", all_experiences: bool = False
     except Exception as e:
         logger.warning(f"[SecConsolidation] 经验删除失败 (fail-soft): {e}")
         return -1
+
+
+EMAIL_EXP_SOURCE = "email_experience"
+
+
+async def consolidate_email_verdict(
+    raw_email_excerpt: str, verdict_summary: str
+) -> None:
+    """邮件研判经验提炼 — 仅 phishing 判定调用 (benign/suspicious 不入库, 与告警侧
+    「无沉淀价值不入库」同纪律防噪声). 从不抛异常 (fire-and-forget 安全).
+
+    Args:
+        raw_email_excerpt: 邮件 headers + 正文节选 (复用 analyze_email 的截断口径)
+        verdict_summary: 判定摘要 (classification/phishing_type/关键 indicators)
+    """
+    logger.info("[EmailConsolidation] 开始提炼邮件研判经验")
+    try:
+        harness = get_agent_harness()
+        model = harness.planner_model()
+        llm = get_chat_llm(model=model, temperature=0.1, timeout=120, max_retries=2)
+        system_prompt = (
+            "你是邮件安全研判专家 (Email Security Analyst Mentor). 任务: 把一次钓鱼邮件 "
+            "研判结论提炼为精简的 <Threat Pattern> 经验文档, 供后续同类邮件研判参考. "
+            "提取攻击话术、仿冒手法、诱饵特征与鉴别要点. 证据不足或无实质鉴别价值时 "
+            "设置 is_valid_threat = false."
+        )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"邮件节选:\n{raw_email_excerpt}\n\n判定摘要:\n{verdict_summary}"},
+        ]
+        pattern = await ainvoke_structured(
+            llm=llm, schema_cls=ThreatPattern, messages=messages, model_name=model
+        )
+    except Exception as e:
+        logger.warning(f"[EmailConsolidation] LLM 提炼失败 (fail-soft 忽略): {e}")
+        return
+
+    if not pattern.is_valid_threat:
+        logger.info("[EmailConsolidation] 判定为无沉淀价值, 忽略入库")
+        return
+
+    doc_content = (
+        f"# {pattern.title}\n\n"
+        f"(钓鱼邮件研判经验)\n\n"
+        f"## 攻击话术与手法\n{pattern.attack_pattern}\n\n"
+        f"## 诱饵与指标特征\n{pattern.indicators}\n\n"
+        f"## 鉴别要点\n{pattern.verdict_rationale}\n\n"
+        f"## 处置建议\n{pattern.recommended_actions}\n"
+    )
+    try:
+        chunks = split_markdown(doc_content, source=EMAIL_EXP_SOURCE)
+        for chunk in chunks:
+            meta = chunk.metadata or {}
+            # 同 alert 侧: Milvus 按首批文档建 schema, 缺键非法 — 显式补齐
+            meta.setdefault("h1", "")
+            meta.setdefault("h2", "")
+            meta.setdefault("h3", "")
+            meta["type"] = "email_threat_pattern"
+            chunk.metadata = meta
+        vs = get_vector_store()
+        vs.add_documents(chunks)
+        logger.info(f"[EmailConsolidation] 邮件研判经验已入库: {pattern.title}")
+    except Exception as e:
+        logger.warning(f"[EmailConsolidation] 入库失败 (fail-soft): {e}")

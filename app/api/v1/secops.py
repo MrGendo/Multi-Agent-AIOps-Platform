@@ -10,6 +10,7 @@ POST /api/v1/secops/triage
 import asyncio
 import json
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import AsyncIterator
 
 from fastapi import APIRouter
@@ -617,6 +618,51 @@ _EMAIL_EXTRACT_PROMPT = """你是邮件安全取证分析员。分析师上传�
 直接输出转写文本, 不要寒暄。"""
 
 
+_email_bg_tasks: set = set()   # 后台沉淀任务引用池 (防 GC 回收)
+
+
+def email_history_domain(parsed: dict) -> str:
+    """从解析结果取发件域 (历史统计键)."""
+    from_addr = (parsed.get("headers") or {}).get("From", "")
+    return from_addr.rsplit("@", 1)[-1].strip().strip(">").lower() if "@" in from_addr else ""
+
+
+def _format_sender_history(parsed: dict) -> str:
+    """同发件域历史判定 → 注入文本 (无记录返回空, 保持与旧管线一致)."""
+    from app.security import email_history
+
+    domain = email_history_domain(parsed)
+    if not domain:
+        return ""
+    stats = email_history.sender_domain_stats(domain, days=90)
+    if stats["total"] == 0:
+        return ""
+    by_cls = ", ".join(f"{k}×{v}" for k, v in stats["by_classification"].items())
+    return (
+        f"发件域 {domain} 近 90 天已有 {stats['total']} 次研判记录 ({by_cls}), "
+        f"最近一次 {stats['last_ts']}"
+        + (f" 判为 {stats['last_phishing_type']}" if stats.get("last_phishing_type") else "")
+    )
+
+
+async def _recall_email_experience(raw_email: str) -> str:
+    """向量召回同类邮件研判经验 → 参考文本 (无命中/失败返回空)."""
+    try:
+        from app.core.vector_store import safe_similarity_search
+        from app.security.consolidation import EMAIL_EXP_SOURCE
+
+        docs = safe_similarity_search(
+            f"钓鱼邮件研判 {raw_email[:500]}",
+            k=2, filter=f'source == "{EMAIL_EXP_SOURCE}"',
+        )
+        return "\n---\n".join(
+            (d.page_content or "")[:400] for d in (docs or [])
+        ) or ""
+    except Exception as exc:
+        logger.debug(f"[EmailTriage] 经验召回失败 (fail-soft 跳过): {exc}")
+        return ""
+
+
 async def _run_email_triage_sse(raw_email: str, note: str, session_id: str):
     """邮件分析 SSE 流: start → parsing → analyzing → report → complete."""
     from app.security.email_triage import analyze_email, deterministic_signals, parse_email
@@ -659,7 +705,7 @@ async def _run_email_triage_sse(raw_email: str, note: str, session_id: str):
                 "沙箱验证中 (urlscan 代访, 本机零接触, 最多 3 条, 等待窗 ≤75s)…",
             )
 
-        # 阶段 3: LLM 语义研判 — 沙箱证据 (若有) 注入上下文
+        # 阶段 3: LLM 语义研判 — 沙箱证据/同域历史/同类经验 (若有) 注入上下文
         sandbox_verdicts: list = []
         sandbox_cancelled: list = []
         sandbox_evidence = ""
@@ -677,14 +723,36 @@ async def _run_email_triage_sse(raw_email: str, note: str, session_id: str):
         else:
             yield await _ev("analyzing", "analyzing", "语义研判中 (发件人身份/话术/意图)…")
 
-        result = await analyze_email(raw_email, note=note, sandbox_evidence=sandbox_evidence)
+        # 同发件域历史判定 (毫秒级 jsonl 尾读) + 同类经验向量召回 — 均为可选注入
+        history_context = _format_sender_history(parsed)
+        experience_context = await _recall_email_experience(raw_email)
+
+        result = await analyze_email(
+            raw_email, note=note, sandbox_evidence=sandbox_evidence,
+            history_context=history_context, experience_context=experience_context,
+        )
         # 沙箱结论随报告一并交付 (前端信号卡 + 验证卡数据源)
         result["sandbox_link_verdicts"] = sandbox_verdicts
+
+        # 历史落盘 (append-only, fail-soft) — 整理起来的基础
+        from app.security import email_history
+
+        email_history.append(
+            classification=result["classification"],
+            phishing_type=result.get("phishing_type", ""),
+            confidence=result.get("confidence", 0.0),
+            sender_domain=email_history_domain(parsed),
+            from_header=parsed["headers"].get("From", ""),
+            subject=parsed["headers"].get("Subject", ""),
+            url_domains=[urlparse(u).hostname or "" for u in parsed["urls"][:5]],
+            degraded=result.get("status") == "degraded",
+        )
 
         yield await _ev(
             "report", "report",
             f"研判完成: {result['classification']} ({result['confidence']:.0%})"
-            + (f" · 沙箱验证 {sum(1 for v in sandbox_verdicts if v.get('status') == 'verified')} 条" if sandbox_task else ""),
+            + (f" · 沙箱验证 {sum(1 for v in sandbox_verdicts if v.get('status') == 'verified')} 条" if sandbox_task else "")
+            + (" · 同域历史: " + history_context if history_context else ""),
             result=result,
         )
 
@@ -702,6 +770,29 @@ async def _run_email_triage_sse(raw_email: str, note: str, session_id: str):
             )
 
         yield await _ev("complete", "complete", "邮件分析完成", session_id=session_id)
+
+        # 经验提炼 (fire-and-forget): phishing 且非 degraded 才值得沉淀 —
+        # 断连后仍应完成 (不进 finally 取消链), 失败 fail-soft 由函数自身兜住
+        if result["classification"] == "phishing" and result.get("status") != "degraded":
+            from app.security.consolidation import consolidate_email_verdict
+
+            headers_brief = "\n".join(
+                f"{k}: {v[:120]}" for k, v in (parsed["headers"] or {}).items()
+            )
+            summary = (
+                f"判定: {result['classification']} ({result.get('phishing_type', 'none')}, "
+                f"置信 {result.get('confidence', 0):.0%})\n意图: {result.get('intent_summary', '')}\n"
+                f"关键依据: " + "; ".join(
+                    i.get("description", "")[:60] for i in (result.get("indicators") or [])[:4]
+                )
+            )
+            # 裸 create_task 无引用会被 GC 中途回收 (asyncio 已知坑) —
+            # 模块级集合持有引用, 完成后自摘除
+            _task = asyncio.create_task(consolidate_email_verdict(
+                f"{headers_brief}\n\n{(parsed.get('body') or '')[:2000]}", summary
+            ))
+            _email_bg_tasks.add(_task)
+            _task.add_done_callback(_email_bg_tasks.discard)
     except Exception as exc:
         logger.exception(f"[secops] 邮件分析异常 session={session_id}: {exc}")
         yield await _ev(
@@ -729,6 +820,17 @@ async def _run_email_triage_sse(raw_email: str, note: str, session_id: str):
 )
 async def secops_email_triage(req: EmailTriageRequest):
     return EventSourceResponse(_run_email_triage_sse(req.raw_email, req.note, req.session_id))
+
+
+@router.get(
+    "/email/history",
+    summary="钓鱼邮件研判历史 — 最近 N 条记录 (新→旧)",
+    description="每次研判自动落盘; 记录含发件域/判定/细分类型/置信度/链接域。研判时同域历史自动注入上下文。",
+)
+async def secops_email_history(limit: int = 20):
+    from app.security import email_history
+
+    return {"records": email_history.query(limit=max(1, min(limit, 200)))}
 
 
 @router.post(
