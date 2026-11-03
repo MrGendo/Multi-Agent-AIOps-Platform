@@ -1,0 +1,41 @@
+[
+  {
+    "id": "T10",
+    "label": "自由文本 - 主机挖矿进程",
+    "format": "free_text",
+    "expected": {
+      "domain": "security",
+      "verdict": [
+        "malicious"
+      ],
+      "ioc_must": [
+        "192.168.3.12"
+      ],
+      "mitre_hint": "T1496"
+    },
+    "elapsed": 89.2,
+    "http": 200,
+    "n_events": 10,
+    "domain": "security",
+    "alert_type": "unknown",
+    "severity": "MEDIUM",
+    "verdict": "inconclusive",
+    "fast_path": "analyst",
+    "confidence": 0.135,
+    "response_mode": "recommend",
+    "iocs_found": {
+      "ips": [
+        "192.168.3.12"
+      ]
+    },
+    "mitre_raw": "",
+    "report_len": 476,
+    "has_report": true,
+    "pass_domain": true,
+    "pass_verdict": false,
+    "pass_ioc": true,
+    "ioc_missing": [],
+    "pass_mitre": false,
+    "pass_seq": true
+  }
+]
