@@ -487,9 +487,44 @@ class HistoryPurgeRequest(BaseModel):
     )
 
 
+class ExperienceDeleteRequest(BaseModel):
+    """研判经验删除请求 (经验库治理 — 经验此前只进不出, 无质量出口)."""
+
+    confirm: bool = Field(default=False, description="必须显式 true (删除不可恢复)")
+    content_contains: str = Field(
+        default="",
+        description="删除内容含该关键词的经验条目 (如 「RFC 保留段」清评测污染经验)",
+    )
+    all_experiences: bool = Field(default=False, description="删除全部经验 (慎用)")
+
+
 @router.get("/history/stats", summary="历史存储统计 — 三类存储条数/体积/时间范围")
 async def secops_history_stats():
     return history_mgmt.get_stats()
+
+
+@router.post(
+    "/experience/delete",
+    summary="研判经验删除 — 经验库治理通道 (评测污染/低质经验的出口)",
+    description=(
+        "经验库此前只进不出, 单条低质经验会持续影响后续同类研判 "
+        "(评测实证: RFC 保留段经验压制 payload 证据)。"
+        "content_contains 按内容匹配删除 (如 「RFC 保留段」清评测污染经验); 删除不可恢复, confirm 必须 true。"
+    ),
+)
+async def secops_experience_delete(req: ExperienceDeleteRequest):
+    if not req.confirm:
+        return JSONResponse(status_code=422, content={"detail": "confirm 必须 true — 删除不可恢复"})
+    if not req.content_contains and not req.all_experiences:
+        return JSONResponse(status_code=422, content={"detail": "content_contains / all_experiences 至少给一个"})
+    from app.security.consolidation import delete_experiences
+
+    deleted = delete_experiences(
+        content_contains=req.content_contains, all_experiences=req.all_experiences
+    )
+    if deleted == -1:
+        return JSONResponse(status_code=503, content={"detail": "Milvus 不可用或无底层客户端, 稍后重试"})
+    return {"deleted": deleted}
 
 
 @router.post(

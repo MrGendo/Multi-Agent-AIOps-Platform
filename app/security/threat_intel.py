@@ -11,6 +11,7 @@ map_mitre: alert_type 静态映射 + 证据文本中技术 ID 正则提取, 合�
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Dict, List
 
@@ -67,21 +68,28 @@ async def enrich_iocs(iocs: Dict[str, List[str]], max_per_query: int = 2) -> Lis
     if not targets:
         return []
 
-    snippets: List[str] = []
-    for indicator in targets:
+    # web_search 底层是阻塞 httpx.post (15s 超时) — 绝不能在事件循环线程里
+    # 同步串行调用: 最坏 8 个 IOC 会把整个 FastAPI 循环卡死约 2 分钟, 所有
+    # 并发 SSE/健康检查停摆 (健康审查发现的稳定性硬伤)。
+    # to_thread 丢线程池 + gather 并发: 既不阻塞循环, 又把串行等待压成单轮超时。
+    async def _query_one(indicator: str) -> List[str]:
         try:
-            results = web_search(
-                f"threat intelligence {indicator}", max_results=max_per_query
+            results = await asyncio.to_thread(
+                web_search, f"threat intelligence {indicator}", max_results=max_per_query
             )
+            out = []
             for r in results or []:
                 content = (r.get("snippet") or "").strip()
                 url = r.get("url", "")
                 if content:
-                    snippets.append(f"[{indicator}] {content[:300]} (source: {url})")
+                    out.append(f"[{indicator}] {content[:300]} (source: {url})")
+            return out
         except Exception as exc:  # fail-soft: 单个指标失败不影响其余
             logger.warning(f"[ThreatIntel] 情报查询失败 {indicator}: {exc}")
-            continue
-    return snippets
+            return []
+
+    nested = await asyncio.gather(*(_query_one(t) for t in targets))
+    return [s for chunks in nested for s in chunks]
 
 
 def map_mitre(alert_type: str, evidence_text: str = "") -> List[str]:

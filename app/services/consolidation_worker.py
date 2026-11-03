@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from loguru import logger
 from pydantic import BaseModel, Field
 

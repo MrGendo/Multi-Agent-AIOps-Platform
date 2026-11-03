@@ -23,7 +23,7 @@ import asyncio
 import os
 import re
 import time
-from typing import List, Literal, Optional
+from typing import List, Literal
 
 from loguru import logger
 from pydantic import BaseModel, Field

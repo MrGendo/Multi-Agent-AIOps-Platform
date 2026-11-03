@@ -112,6 +112,18 @@ class MilvusManager:
         finally:
             self._connected = False
 
+    @property
+    def raw_client(self) -> Any:
+        """底层 MilvusClient (lite) / None — 供按条件删除等 Manager 未封装的操作.
+
+        经验库治理需要 query+delete 表达式操作, 封装进 Manager 会随 Milvus API
+        演进反复改接口, 直接暴露底层客户端并把表达式责任留给调用方.
+        """
+        if self._is_lite and self._lite_client is not None:
+            return self._lite_client
+        logger.warning("[Milvus] server 模式无底层 client, raw_client 返回 None")
+        return None
+
     # ==================== 健康检查 ====================
 
     def is_alive(self) -> bool:
