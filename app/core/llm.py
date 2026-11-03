@@ -9,6 +9,8 @@
   - 不做 lru_cache: 每次调用返回新实例 (因为 temperature/streaming 等参数因调用方而异)
 """
 
+import asyncio
+import threading
 from typing import Any, Optional
 
 from langchain_core.language_models import BaseChatModel
@@ -60,20 +62,40 @@ def _build_local_llm(
 
 
 _glm_last_call_ts: float = 0.0
+_glm_rate_lock = threading.Lock()
 
 
 def _glm_rate_limit(interval_sec: float) -> None:
-    """进程级最小间隔节流 (同步, 阻塞在构造期). 简单但足够:
-    Agent 的 LLM 调用都经 get_chat_llm 构造, 在这里 sleep 等效于请求前间隔.
+    """进程级最小间隔节流 (阻塞在构造期, 等效于请求前间隔).
+
+    同步上下文才真正 sleep — get_chat_llm 常被 async 图节点直接调用, 此时
+    time.sleep 会冻结整个事件循环 (所有并发 SSE 停摆, 健康审查发现的阻塞点);
+    同步函数内不存在"不阻塞当前线程的等待", 故事件循环内退化为时间戳预占 +
+    警告 (限频尽力而为, 优于卡死服务)。时间戳读写全程持锁修并发竞态。
     """
     global _glm_last_call_ts
     import time as _time
 
-    now = _time.monotonic()
-    wait = _glm_last_call_ts + interval_sec - now
-    if wait > 0:
-        _time.sleep(wait)
-    _glm_last_call_ts = _time.monotonic()
+    with _glm_rate_lock:
+        now = _time.monotonic()
+        wait = _glm_last_call_ts + interval_sec - now
+        if wait <= 0:
+            _glm_last_call_ts = now
+            return
+        _glm_last_call_ts = now + wait  # 预占未来槽位, 并发调用者不重复排队
+
+    try:
+        asyncio.get_running_loop()
+        in_loop = True
+    except RuntimeError:
+        in_loop = False
+    if in_loop:
+        logger.warning(
+            f"[GLM] 限频间隔 {interval_sec}s 在事件循环内不可同步等待, "
+            "本次退化为预占时间戳 (如需严格限频请在调用侧 asyncio.sleep)"
+        )
+        return
+    _time.sleep(wait)
 
 
 def get_chat_llm(

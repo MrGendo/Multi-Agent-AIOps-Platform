@@ -106,3 +106,57 @@ async def consolidate_triage_report(
         logger.info(f"[SecConsolidation] 研判经验已入库: {pattern.title}")
     except Exception as e:
         logger.warning(f"[SecConsolidation] 入库失败 (fail-soft): {e}")
+
+
+def delete_experiences(content_contains: str = "", all_experiences: bool = False) -> int:
+    """删除研判经验 — 经验库治理通道 (此前只进不出, 评测污染经验永久留存).
+
+    Args:
+        content_contains: 删除内容含该关键词的经验条目 (如 "RFC 保留段" 清评测
+            污染经验 — session_id 等 metadata 在建表后追加会被 Milvus 静默丢弃,
+            按会话过滤不可行, 只能按内容匹配)
+        all_experiences:  删除全部经验 (慎用)
+    Returns:
+        删除条数; Milvus 不可用/无底层客户端 → -1 (fail-soft, 调用方提示重试).
+    """
+
+    from app.config import settings as _settings
+
+    if not content_contains and not all_experiences:
+        return 0
+    try:
+        # 复用进程级单例 (lifespan 已连接) — 新建实例会另起 lite server,
+        # 与既有单例的端口记录冲突导致连接失败
+        from app.core.milvus import milvus_manager as mgr
+
+        mgr.connect()  # 幂等; 未连接时 (如离线脚本调用) 自行建立
+        client = mgr.raw_client
+        if client is None:
+            return -1
+        # 独立连接的 collection 处于 released 态, query 前必须加载 (幂等)
+        client.load_collection(_settings.milvus_collection)
+        rows = client.query(
+            collection_name=_settings.milvus_collection,
+            filter=f'source == "{SECOPS_EXP_SOURCE}"',
+            output_fields=["pk", "content"],
+            limit=1000,
+        )
+        if all_experiences:
+            pks = [r["pk"] for r in rows if "pk" in r]
+        else:
+            pks = [r["pk"] for r in rows
+                   if "pk" in r and content_contains in (r.get("content") or "")]
+        if not pks:
+            return 0
+        client.delete(
+            collection_name=_settings.milvus_collection,
+            filter=f'pk in {pks}',
+        )
+        logger.info(
+            f"[SecConsolidation] 经验治理: 删除 {len(pks)} 条 "
+            f"({'全部' if all_experiences else f'内容含「{content_contains}」'})"
+        )
+        return len(pks)
+    except Exception as e:
+        logger.warning(f"[SecConsolidation] 经验删除失败 (fail-soft): {e}")
+        return -1

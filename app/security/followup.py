@@ -8,7 +8,7 @@ alert_type + 已有 IOC 给出「设备 → 操作 → 能拿到什么证据」�
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Dict, List
 
 from pydantic import BaseModel, Field
 

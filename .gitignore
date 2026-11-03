@@ -52,3 +52,6 @@ Thumbs.db
 # Test run artifacts
 tests/__*.log
 tests/__*.log.err
+
+# SQLite 活跃伴随文件 (wal/shm)
+data/*.db-*
