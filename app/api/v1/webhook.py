@@ -26,6 +26,8 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 import app.services.aiops_service as aiops_service
+
+_notify_bg_tasks: set = set()   # 后台推送任务引用池 (防 GC 回收)
 from app.config import settings
 from app.core.metrics import record_alert_deduplicated, record_alert_received
 from app.db.persistence import persistence
@@ -292,6 +294,20 @@ async def _run_triage_background(
         f"[webhook] 安全研判完成 session={session_id} verdict={verdict or '(无)'} "
         f"events={len(events)} report_len={len(final_report)}"
     )
+
+    # 高危结果推送 (飞书/企微/邮件, 全 fail-soft) — webhook 是无人值守路径, 人不在 UI 前
+    from app.core.notifier import notify_security, should_notify_security
+
+    severity = str((alert_meta or {}).get("severity", "")).upper()
+    if should_notify_security(verdict, severity) and not error_msg:
+        _task = asyncio.create_task(notify_security(
+            verdict=verdict, severity=severity or "UNKNOWN",
+            alert_summary=str((alert_meta or {}).get("rule") or query[:120]),
+            reason=final_report[:400],
+            iocs=list((alert_meta or {}).get("iocs", []) or []),
+        ))
+        _notify_bg_tasks.add(_task)
+        _task.add_done_callback(_notify_bg_tasks.discard)
 
 
 # ============================================================

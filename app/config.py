@@ -89,6 +89,22 @@ class Settings(BaseSettings):
         default="public",
         description="urlscan 扫描可见性: public (免费档) / unlisted",
     )
+
+    # ==================== 研判结果推送 (飞书/企微/邮件) ====================
+    # 默认全关 — NOTIFY_ENABLED=false 时不外呼任何渠道, 行为与无此模块时一致。
+    # 只推"无人值守"路径 (webhook 自动研判 + 邮件管线), UI 手动研判不推。
+    notify_enabled: bool = Field(default=False, description="推送总开关 (默认关)")
+    notify_feishu_webhook: str = Field(default="", description="飞书群机器人 webhook URL (空=不启用)")
+    notify_wecom_webhook: str = Field(default="", description="企业微信群机器人 webhook URL (空=不启用)")
+    notify_smtp_host: str = Field(default="", description="SMTP 服务器 (空=邮件渠道不启用)")
+    notify_smtp_port: int = Field(default=465, description="SMTP 端口 (465=SSL)")
+    notify_smtp_user: str = Field(default="", description="SMTP 认证用户")
+    notify_smtp_pass: str = Field(default="", description="SMTP 认证密码")
+    notify_smtp_from: str = Field(default="", description="发件人地址")
+    notify_smtp_to: str = Field(default="", description="收件人列表 (逗号分隔)")
+    notify_min_severity: str = Field(default="HIGH", description="告警推送阈值 (malicious 恒推)")
+    notify_on_phishing: bool = Field(default=True, description="邮件判 phishing 时推送")
+    notify_rate_limit: int = Field(default=8, description="每渠道每分钟推送上限 (超出抑制并在窗口末汇总)")
     dashscope_embedding_model: str = Field(
         default="text-embedding-v4", description="Embedding 模型"
     )

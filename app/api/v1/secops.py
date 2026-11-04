@@ -771,6 +771,21 @@ async def _run_email_triage_sse(raw_email: str, note: str, session_id: str):
 
         yield await _ev("complete", "complete", "邮件分析完成", session_id=session_id)
 
+        # 钓鱼判定推送 (飞书/企微/邮件, 全 fail-soft) — 邮件管线是无人值守路径
+        from app.core.notifier import notify_email, should_notify_email
+
+        if should_notify_email(result["classification"], result.get("status") == "degraded"):
+            _t = asyncio.create_task(notify_email(
+                classification=result["classification"],
+                confidence=result.get("confidence", 0.0),
+                phishing_type=result.get("phishing_type", ""),
+                intent=result.get("intent_summary", ""),
+                sender=parsed["headers"].get("From", ""),
+                subject=parsed["headers"].get("Subject", ""),
+            ))
+            _email_bg_tasks.add(_t)
+            _t.add_done_callback(_email_bg_tasks.discard)
+
         # 经验提炼 (fire-and-forget): phishing 且非 degraded 才值得沉淀 —
         # 断连后仍应完成 (不进 finally 取消链), 失败 fail-soft 由函数自身兜住
         if result["classification"] == "phishing" and result.get("status") != "degraded":
